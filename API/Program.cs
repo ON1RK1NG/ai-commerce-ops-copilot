@@ -1,36 +1,88 @@
+using Domain.Entities;
+using Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
-namespace API
+namespace API;
+
+public class Program
 {
-    public class Program
+    public static void Main(string[] args)
     {
-        public static void Main(string[] args)
+        var builder = WebApplication.CreateBuilder(args);
+
+        builder.Services.AddControllers();
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen();
+
+        builder.Services.AddDbContext<AppDbContext>(options =>
+            options.UseSqlServer(
+                builder.Configuration.GetConnectionString("DefaultConnection")));
+
+        var app = builder.Build();
+
+        if (app.Environment.IsDevelopment())
         {
-            var builder = WebApplication.CreateBuilder(args);
-
-            // Add services to the container.
-
-            builder.Services.AddControllers();
-            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-            builder.Services.AddEndpointsApiExplorer();
-            builder.Services.AddSwaggerGen();
-
-            var app = builder.Build();
-
-            // Configure the HTTP request pipeline.
-            if (app.Environment.IsDevelopment())
-            {
-                app.UseSwagger();
-                app.UseSwaggerUI();
-            }
-
-            app.UseHttpsRedirection();
-
-            app.UseAuthorization();
-
-
-            app.MapControllers();
-
-            app.Run();
+            app.UseSwagger();
+            app.UseSwaggerUI();
         }
+
+        app.UseHttpsRedirection();
+        app.UseAuthorization();
+        app.MapControllers();
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            if (!dbContext.Categories.Any())
+            {
+                var electronics = new Category { Name = "Electronics" };
+                var accessories = new Category { Name = "Accessories" };
+
+                dbContext.Categories.AddRange(electronics, accessories);
+                dbContext.SaveChanges();
+
+                var product1 = new Product
+                {
+                    Sku = "SKU-1001",
+                    Name = "Wireless Mouse",
+                    Description = "Ergonomic wireless mouse",
+                    Price = 25.99m,
+                    CategoryId = electronics.Id
+                };
+
+                var product2 = new Product
+                {
+                    Sku = "SKU-1002",
+                    Name = "Mechanical Keyboard",
+                    Description = "RGB mechanical keyboard",
+                    Price = 79.99m,
+                    CategoryId = electronics.Id
+                };
+
+                dbContext.Products.AddRange(product1, product2);
+                dbContext.SaveChanges();
+
+                dbContext.InventoryItems.AddRange(
+                    new InventoryItem
+                    {
+                        ProductId = product1.Id,
+                        StockOnHand = 120,
+                        StockReserved = 10,
+                        ReorderThreshold = 20
+                    },
+                    new InventoryItem
+                    {
+                        ProductId = product2.Id,
+                        StockOnHand = 45,
+                        StockReserved = 5,
+                        ReorderThreshold = 15
+                    });
+
+                dbContext.SaveChanges();
+            }
+        }
+
+        app.Run();
     }
 }
