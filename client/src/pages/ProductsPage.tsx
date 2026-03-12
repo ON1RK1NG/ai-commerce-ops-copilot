@@ -63,6 +63,33 @@ function getSortLabel(sortBy: SortOption) {
   }
 }
 
+function buildPaginationItems(currentPage: number, totalPages: number) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const items: Array<number | string> = [1];
+
+  if (currentPage > 3) {
+    items.push("start-ellipsis");
+  }
+
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+
+  for (let page = start; page <= end; page++) {
+    items.push(page);
+  }
+
+  if (currentPage < totalPages - 2) {
+    items.push("end-ellipsis");
+  }
+
+  items.push(totalPages);
+
+  return items;
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -80,6 +107,8 @@ export default function ProductsPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState(0);
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const isEditMode = editingProductId !== null;
   const isDeleteModalOpen = productToDelete !== null;
@@ -161,6 +190,33 @@ export default function ProductsPage() {
     return sorted;
   }, [filteredProducts, sortBy]);
 
+  const totalPages = Math.max(1, Math.ceil(displayedProducts.length / pageSize));
+
+  const paginatedProducts = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return displayedProducts.slice(startIndex, startIndex + pageSize);
+  }, [displayedProducts, currentPage, pageSize]);
+
+  const paginationItems = useMemo(() => {
+    return buildPaginationItems(currentPage, totalPages);
+  }, [currentPage, totalPages]);
+
+  const startItem = displayedProducts.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endItem =
+    displayedProducts.length === 0
+      ? 0
+      : Math.min(currentPage * pageSize, displayedProducts.length);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategoryId, stockFilter, sortBy, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   async function loadProducts() {
     try {
       setLoadingProducts(true);
@@ -201,6 +257,7 @@ export default function ProductsPage() {
     setSelectedCategoryId(0);
     setStockFilter("all");
     setSortBy("newest");
+    setPageSize(10);
   }
 
   function handleChange(
@@ -337,8 +394,8 @@ export default function ProductsPage() {
         err instanceof Error
           ? err.message
           : isEditMode
-          ? "Failed to update product."
-          : "Failed to create product."
+            ? "Failed to update product."
+            : "Failed to create product."
       );
     } finally {
       setSubmitting(false);
@@ -500,8 +557,8 @@ export default function ProductsPage() {
                       ? "Updating..."
                       : "Creating..."
                     : isEditMode
-                    ? "Update Product"
-                    : "Create Product"}
+                      ? "Update Product"
+                      : "Create Product"}
                 </button>
 
                 {isEditMode && (
@@ -587,6 +644,19 @@ export default function ProductsPage() {
                   </select>
                 </div>
 
+                <div className="filter-field">
+                  <label htmlFor="pageSize">Page Size</label>
+                  <select
+                    id="pageSize"
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                  >
+                    <option value={5}>5 per page</option>
+                    <option value={10}>10 per page</option>
+                    <option value={20}>20 per page</option>
+                  </select>
+                </div>
+
                 <div className="filter-actions">
                   <button
                     type="button"
@@ -600,8 +670,8 @@ export default function ProductsPage() {
 
               <div className="filters-summary">
                 <span>
-                  Showing <strong>{displayedProducts.length}</strong> of{" "}
-                  <strong>{products.length}</strong> products
+                  Showing <strong>{startItem}</strong>–<strong>{endItem}</strong> of{" "}
+                  <strong>{displayedProducts.length}</strong> matching products
                 </span>
                 <span>
                   Sorted by <strong>{getSortLabel(sortBy)}</strong>
@@ -617,74 +687,121 @@ export default function ProductsPage() {
                 <p>Try changing your search, filters, or sorting.</p>
               </div>
             ) : (
-              <div className="table-wrapper">
-                <table className="products-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>SKU</th>
-                      <th>Name</th>
-                      <th>Description</th>
-                      <th>Price</th>
-                      <th>Category</th>
-                      <th>Stock</th>
-                      <th>Reserved</th>
-                      <th>Threshold</th>
-                      <th>Available</th>
-                      <th>Status</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayedProducts.map((product) => {
-                      const available = getAvailableStock(product);
-                      const isLowStock = available <= product.reorderThreshold;
-                      const isDeleting = deletingProductId === product.id;
+              <>
+                <div className="table-wrapper">
+                  <table className="products-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>SKU</th>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Price</th>
+                        <th>Category</th>
+                        <th>Stock</th>
+                        <th>Reserved</th>
+                        <th>Threshold</th>
+                        <th>Available</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedProducts.map((product) => {
+                        const available = getAvailableStock(product);
+                        const isLowStock = available <= product.reorderThreshold;
+                        const isDeleting = deletingProductId === product.id;
 
-                      return (
-                        <tr key={product.id} className={isLowStock ? "row-low-stock" : ""}>
-                          <td>{product.id}</td>
-                          <td>{product.sku}</td>
-                          <td>{product.name}</td>
-                          <td>{product.description}</td>
-                          <td>${product.price.toFixed(2)}</td>
-                          <td>{product.categoryName}</td>
-                          <td>{product.stockOnHand}</td>
-                          <td>{product.stockReserved}</td>
-                          <td>{product.reorderThreshold}</td>
-                          <td>{available}</td>
-                          <td>
-                            <span className={isLowStock ? "status-badge low" : "status-badge ok"}>
-                              {isLowStock ? "Low Stock" : "Healthy"}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="table-actions">
-                              <button
-                                type="button"
-                                className="table-button edit-button"
-                                onClick={() => handleEditClick(product)}
-                                disabled={submitting || deletingProductId !== null}
-                              >
-                                Edit
-                              </button>
+                        return (
+                          <tr key={product.id} className={isLowStock ? "row-low-stock" : ""}>
+                            <td>{product.id}</td>
+                            <td>{product.sku}</td>
+                            <td>{product.name}</td>
+                            <td>{product.description}</td>
+                            <td>${product.price.toFixed(2)}</td>
+                            <td>{product.categoryName}</td>
+                            <td>{product.stockOnHand}</td>
+                            <td>{product.stockReserved}</td>
+                            <td>{product.reorderThreshold}</td>
+                            <td>{available}</td>
+                            <td>
+                              <span className={isLowStock ? "status-badge low" : "status-badge ok"}>
+                                {isLowStock ? "Low Stock" : "Healthy"}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="table-actions">
+                                <button
+                                  type="button"
+                                  className="table-button edit-button"
+                                  onClick={() => handleEditClick(product)}
+                                  disabled={submitting || deletingProductId !== null}
+                                >
+                                  Edit
+                                </button>
 
-                              <button
-                                type="button"
-                                className="table-button delete-button"
-                                onClick={() => handleDeleteClick(product)}
-                                disabled={submitting || deletingProductId !== null}
-                              >
-                                {isDeleting ? "Deleting..." : "Delete"}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                                <button
+                                  type="button"
+                                  className="table-button delete-button"
+                                  onClick={() => handleDeleteClick(product)}
+                                  disabled={submitting || deletingProductId !== null}
+                                >
+                                  {isDeleting ? "Deleting..." : "Delete"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="pagination-bar">
+                  <div className="pagination-info">
+                    Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                  </div>
+
+                  <div className="pagination-controls">
+                    <button
+                      type="button"
+                      className="page-button"
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </button>
+
+                    {paginationItems.map((item, index) =>
+                      typeof item === "string" ? (
+                        <span key={`${item}-${index}`} className="page-ellipsis">
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          type="button"
+                          className={`page-button ${currentPage === item ? "active" : ""}`}
+                          onClick={() => setCurrentPage(item)}
+                        >
+                          {item}
+                        </button>
+                      )
+                    )}
+
+                    <button
+                      type="button"
+                      className="page-button"
+                      onClick={() =>
+                        setCurrentPage((page) => Math.min(totalPages, page + 1))
+                      }
+                      disabled={currentPage === totalPages}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </section>
         </div>

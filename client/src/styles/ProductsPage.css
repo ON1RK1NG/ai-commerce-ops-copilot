@@ -198,7 +198,8 @@ body {
 .secondary-button:disabled,
 .table-button:disabled,
 .modal-button:disabled,
-.clear-filters-button:disabled {
+.clear-filters-button:disabled,
+.page-button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
   transform: none;
@@ -220,7 +221,7 @@ body {
 
 .filters-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr auto;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto;
   gap: 14px;
   align-items: end;
 }
@@ -411,6 +412,57 @@ body {
   color: #1d4ed8;
 }
 
+.pagination-bar {
+  margin-top: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.pagination-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.page-button {
+  border: none;
+  min-width: 42px;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: #eef2f7;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.page-button:hover {
+  transform: translateY(-1px);
+  background: #e2e8f0;
+}
+
+.page-button.active {
+  background: linear-gradient(135deg, var(--primary), #3b82f6);
+  color: #fff;
+}
+
+.page-ellipsis {
+  color: var(--muted);
+  padding: 0 4px;
+  font-weight: 700;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -528,6 +580,12 @@ body {
   }
 }
 
+@media (max-width: 1300px) {
+  .filters-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 @media (max-width: 1100px) {
   .stats-grid {
     grid-template-columns: 1fr;
@@ -577,8 +635,10 @@ body {
     flex-direction: column;
   }
 
-  .filters-summary {
+  .filters-summary,
+  .pagination-bar {
     flex-direction: column;
+    align-items: flex-start;
   }
 
   .table-actions {
@@ -589,6 +649,14 @@ body {
   .table-button {
     width: 100%;
     min-width: 100%;
+  }
+
+  .pagination-controls {
+    width: 100%;
+  }
+
+  .page-button {
+    flex: 1 1 auto;
   }
 
   .modal-card {
