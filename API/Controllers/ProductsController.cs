@@ -35,15 +35,72 @@ public class ProductsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ProductDto>>> GetAll()
+    public async Task<ActionResult<ProductListResponseDto>> GetAll([FromQuery] ProductQueryParametersDto query)
     {
-        var products = await _context.Products
+        var page = query.Page < 1 ? 1 : query.Page;
+        var pageSize = query.PageSize <= 0 ? 10 : Math.Min(query.PageSize, 100);
+
+        IQueryable<Product> productsQuery = _context.Products
             .AsNoTracking()
-            .OrderBy(x => x.Id)
+            .Include(x => x.Category)
+            .Include(x => x.InventoryItem);
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim().ToLower();
+
+            productsQuery = productsQuery.Where(x =>
+                x.Sku.ToLower().Contains(search) ||
+                x.Name.ToLower().Contains(search));
+        }
+
+        if (query.CategoryId.HasValue && query.CategoryId.Value > 0)
+        {
+            productsQuery = productsQuery.Where(x => x.CategoryId == query.CategoryId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.StockStatus))
+        {
+            var stockStatus = query.StockStatus.Trim().ToLower();
+
+            if (stockStatus == "low")
+            {
+                productsQuery = productsQuery.Where(x =>
+                    (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+                    (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)
+                    <=
+                    (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0));
+            }
+            else if (stockStatus == "healthy")
+            {
+                productsQuery = productsQuery.Where(x =>
+                    (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+                    (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)
+                    >
+                    (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0));
+            }
+        }
+
+        productsQuery = ApplySorting(productsQuery, query.SortBy);
+
+        var totalCount = await productsQuery.CountAsync();
+
+        var items = await productsQuery
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(ProductProjection)
             .ToListAsync();
 
-        return Ok(products);
+        var response = new ProductListResponseDto
+        {
+            Items = items,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+        };
+
+        return Ok(response);
     }
 
     [HttpGet("{id:int}")]
@@ -184,6 +241,27 @@ public class ProductsController : ControllerBase
         await _context.SaveChangesAsync();
 
         return NoContent();
+    }
+
+    private static IQueryable<Product> ApplySorting(IQueryable<Product> query, string? sortBy)
+    {
+        var normalizedSort = sortBy?.Trim().ToLower();
+
+        return normalizedSort switch
+        {
+            "oldest" => query.OrderBy(x => x.CreatedAtUtc),
+            "name-asc" => query.OrderBy(x => x.Name),
+            "name-desc" => query.OrderByDescending(x => x.Name),
+            "price-asc" => query.OrderBy(x => x.Price),
+            "price-desc" => query.OrderByDescending(x => x.Price),
+            "available-asc" => query.OrderBy(x =>
+                (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+                (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)),
+            "available-desc" => query.OrderByDescending(x =>
+                (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+                (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)),
+            _ => query.OrderByDescending(x => x.CreatedAtUtc)
+        };
     }
 
     private async Task<ActionResult?> ValidateRequestAsync(CreateProductRequest request)

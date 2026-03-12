@@ -30,3 +30,34 @@ export type CreateProductRequest = {
 };
 
 export type UpdateProductRequest = CreateProductRequest;
+
+export type StockFilter = "all" | "healthy" | "low";
+
+export type SortOption =
+  | "newest"
+  | "oldest"
+  | "name-asc"
+  | "name-desc"
+  | "price-asc"
+  | "price-desc"
+  | "available-asc"
+  | "available-desc";
+
+export type ProductQueryParams = {
+  search?: string;
+  categoryId?: number;
+  stockStatus?: Exclude<StockFilter, "all">;
+  sortBy?: SortOption;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PagedResponse<T> = {
+  items: T[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+export type ProductListResponse = PagedResponse<Product>;

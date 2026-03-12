@@ -2,6 +2,8 @@ import type {
   Category,
   CreateProductRequest,
   Product,
+  ProductListResponse,
+  ProductQueryParams,
   UpdateProductRequest,
 } from "../types/product";
 
@@ -20,9 +22,43 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json();
 }
 
-export async function getProducts(): Promise<Product[]> {
-  const response = await fetch(`${API_BASE_URL}/api/products`);
-  return handleResponse<Product[]>(response);
+function buildQueryString(params: ProductQueryParams): string {
+  const searchParams = new URLSearchParams();
+
+  if (params.search?.trim()) {
+    searchParams.set("search", params.search.trim());
+  }
+
+  if (params.categoryId && params.categoryId > 0) {
+    searchParams.set("categoryId", String(params.categoryId));
+  }
+
+  if (params.stockStatus) {
+    searchParams.set("stockStatus", params.stockStatus);
+  }
+
+  if (params.sortBy) {
+    searchParams.set("sortBy", params.sortBy);
+  }
+
+  if (params.page && params.page > 0) {
+    searchParams.set("page", String(params.page));
+  }
+
+  if (params.pageSize && params.pageSize > 0) {
+    searchParams.set("pageSize", String(params.pageSize));
+  }
+
+  const queryString = searchParams.toString();
+  return queryString ? `?${queryString}` : "";
+}
+
+export async function getProducts(
+  params: ProductQueryParams = {}
+): Promise<ProductListResponse> {
+  const queryString = buildQueryString(params);
+  const response = await fetch(`${API_BASE_URL}/api/products${queryString}`);
+  return handleResponse<ProductListResponse>(response);
 }
 
 export async function getCategories(): Promise<Category[]> {

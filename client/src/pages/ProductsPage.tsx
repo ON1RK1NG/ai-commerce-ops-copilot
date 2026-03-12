@@ -10,20 +10,12 @@ import type {
   Category,
   CreateProductRequest,
   Product,
+  ProductListResponse,
+  SortOption,
+  StockFilter,
   UpdateProductRequest,
 } from "../types/product";
 import "../styles/ProductsPage.css";
-
-type StockFilter = "all" | "healthy" | "low";
-type SortOption =
-  | "newest"
-  | "oldest"
-  | "name-asc"
-  | "name-desc"
-  | "price-asc"
-  | "price-desc"
-  | "available-asc"
-  | "available-desc";
 
 const initialForm: CreateProductRequest = {
   sku: "",
@@ -110,10 +102,18 @@ export default function ProductsPage() {
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
 
+  const [serverData, setServerData] = useState<ProductListResponse>({
+    items: [],
+    totalCount: 0,
+    page: 1,
+    pageSize: 10,
+    totalPages: 1,
+  });
+
   const isEditMode = editingProductId !== null;
   const isDeleteModalOpen = productToDelete !== null;
 
-  const totalProducts = products.length;
+  const totalProducts = serverData.totalCount;
 
   const lowStockCount = useMemo(() => {
     return products.filter(
@@ -121,108 +121,90 @@ export default function ProductsPage() {
     ).length;
   }, [products]);
 
+  const healthyProductsCount = useMemo(() => {
+    return products.filter(
+      (p) => getAvailableStock(p) > p.reorderThreshold
+    ).length;
+  }, [products]);
+
   const totalStock = useMemo(() => {
     return products.reduce((sum, product) => sum + product.stockOnHand, 0);
   }, [products]);
 
-  const filteredProducts = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
+  const totalAvailableUnits = useMemo(() => {
+    return products.reduce((sum, product) => sum + getAvailableStock(product), 0);
+  }, [products]);
 
-    return products.filter((product) => {
-      const available = getAvailableStock(product);
-      const isLowStock = available <= product.reorderThreshold;
+  const averagePrice = useMemo(() => {
+    if (products.length === 0) {
+      return 0;
+    }
 
-      const matchesSearch =
-        normalizedSearch.length === 0 ||
-        product.sku.toLowerCase().includes(normalizedSearch) ||
-        product.name.toLowerCase().includes(normalizedSearch);
+    const totalPrice = products.reduce((sum, product) => sum + product.price, 0);
+    return totalPrice / products.length;
+  }, [products]);
 
-      const matchesCategory =
-        selectedCategoryId === 0 || product.categoryId === selectedCategoryId;
+  const lowStockPercentage = useMemo(() => {
+    if (products.length === 0) {
+      return 0;
+    }
 
-      const matchesStockFilter =
-        stockFilter === "all" ||
-        (stockFilter === "low" && isLowStock) ||
-        (stockFilter === "healthy" && !isLowStock);
+    return Math.round((lowStockCount / products.length) * 100);
+  }, [lowStockCount, products.length]);
 
-      return matchesSearch && matchesCategory && matchesStockFilter;
-    });
-  }, [products, searchTerm, selectedCategoryId, stockFilter]);
+  const categoryOverview = useMemo(() => {
+    const map = new Map<
+      string,
+      { name: string; count: number; availableUnits: number }
+    >();
 
-  const displayedProducts = useMemo(() => {
-    const sorted = [...filteredProducts];
+    for (const product of products) {
+      const key = product.categoryName || "Uncategorized";
+      const existing = map.get(key);
 
-    sorted.sort((a, b) => {
-      switch (sortBy) {
-        case "newest":
-          return (
-            new Date(b.createdAtUtc).getTime() - new Date(a.createdAtUtc).getTime()
-          );
-
-        case "oldest":
-          return (
-            new Date(a.createdAtUtc).getTime() - new Date(b.createdAtUtc).getTime()
-          );
-
-        case "name-asc":
-          return a.name.localeCompare(b.name);
-
-        case "name-desc":
-          return b.name.localeCompare(a.name);
-
-        case "price-asc":
-          return a.price - b.price;
-
-        case "price-desc":
-          return b.price - a.price;
-
-        case "available-asc":
-          return getAvailableStock(a) - getAvailableStock(b);
-
-        case "available-desc":
-          return getAvailableStock(b) - getAvailableStock(a);
-
-        default:
-          return 0;
+      if (existing) {
+        existing.count += 1;
+        existing.availableUnits += getAvailableStock(product);
+      } else {
+        map.set(key, {
+          name: key,
+          count: 1,
+          availableUnits: getAvailableStock(product),
+        });
       }
-    });
+    }
 
-    return sorted;
-  }, [filteredProducts, sortBy]);
-
-  const totalPages = Math.max(1, Math.ceil(displayedProducts.length / pageSize));
-
-  const paginatedProducts = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize;
-    return displayedProducts.slice(startIndex, startIndex + pageSize);
-  }, [displayedProducts, currentPage, pageSize]);
+    return Array.from(map.values()).sort((a, b) => b.count - a.count).slice(0, 5);
+  }, [products]);
 
   const paginationItems = useMemo(() => {
-    return buildPaginationItems(currentPage, totalPages);
-  }, [currentPage, totalPages]);
+    return buildPaginationItems(currentPage, Math.max(serverData.totalPages, 1));
+  }, [currentPage, serverData.totalPages]);
 
-  const startItem = displayedProducts.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const startItem =
+    serverData.totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+
   const endItem =
-    displayedProducts.length === 0
+    serverData.totalCount === 0
       ? 0
-      : Math.min(currentPage * pageSize, displayedProducts.length);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, selectedCategoryId, stockFilter, sortBy, pageSize]);
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
+      : Math.min(currentPage * pageSize, serverData.totalCount);
 
   async function loadProducts() {
     try {
       setLoadingProducts(true);
       setError("");
-      const data = await getProducts();
-      setProducts(data);
+
+      const response = await getProducts({
+        search: searchTerm,
+        categoryId: selectedCategoryId > 0 ? selectedCategoryId : undefined,
+        stockStatus: stockFilter === "all" ? undefined : stockFilter,
+        sortBy,
+        page: currentPage,
+        pageSize,
+      });
+
+      setServerData(response);
+      setProducts(response.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load products");
     } finally {
@@ -243,9 +225,12 @@ export default function ProductsPage() {
   }
 
   useEffect(() => {
-    loadProducts();
     loadCategories();
   }, []);
+
+  useEffect(() => {
+    loadProducts();
+  }, [searchTerm, selectedCategoryId, stockFilter, sortBy, currentPage, pageSize]);
 
   function resetForm() {
     setForm(initialForm);
@@ -258,6 +243,7 @@ export default function ProductsPage() {
     setStockFilter("all");
     setSortBy("newest");
     setPageSize(10);
+    setCurrentPage(1);
   }
 
   function handleChange(
@@ -276,6 +262,31 @@ export default function ProductsPage() {
       ...prev,
       [name]: numericFields.includes(name) ? Number(value) : value,
     }));
+  }
+
+  function handleSearchChange(value: string) {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  }
+
+  function handleCategoryFilterChange(value: number) {
+    setSelectedCategoryId(value);
+    setCurrentPage(1);
+  }
+
+  function handleStockFilterChange(value: StockFilter) {
+    setStockFilter(value);
+    setCurrentPage(1);
+  }
+
+  function handleSortChange(value: SortOption) {
+    setSortBy(value);
+    setCurrentPage(1);
+  }
+
+  function handlePageSizeChange(value: number) {
+    setPageSize(value);
+    setCurrentPage(1);
   }
 
   function handleEditClick(product: Product) {
@@ -337,7 +348,12 @@ export default function ProductsPage() {
 
       setSuccess("Product deleted successfully.");
       setProductToDelete(null);
-      await loadProducts();
+
+      if (products.length === 1 && currentPage > 1) {
+        setCurrentPage((page) => page - 1);
+      } else {
+        await loadProducts();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete product.");
     } finally {
@@ -414,10 +430,20 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        <div className="stats-grid">
+        <div className="stats-grid stats-grid-expanded">
           <div className="stat-card">
-            <span className="stat-label">Total Products</span>
+            <span className="stat-label">Products On Page</span>
+            <strong className="stat-value">{products.length}</strong>
+          </div>
+
+          <div className="stat-card">
+            <span className="stat-label">Total Matching Products</span>
             <strong className="stat-value">{totalProducts}</strong>
+          </div>
+
+          <div className="stat-card">
+            <span className="stat-label">Healthy Products</span>
+            <strong className="stat-value">{healthyProductsCount}</strong>
           </div>
 
           <div className="stat-card">
@@ -426,9 +452,90 @@ export default function ProductsPage() {
           </div>
 
           <div className="stat-card">
-            <span className="stat-label">Total Units in Stock</span>
-            <strong className="stat-value">{totalStock}</strong>
+            <span className="stat-label">Available Units</span>
+            <strong className="stat-value">{totalAvailableUnits}</strong>
           </div>
+
+          <div className="stat-card">
+            <span className="stat-label">Average Page Price</span>
+            <strong className="stat-value">${averagePrice.toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div className="dashboard-summary-grid">
+          <section className="panel summary-panel">
+            <div className="panel-header">
+              <h2>Inventory Health</h2>
+              <p>Quick overview of the currently loaded products.</p>
+            </div>
+
+            <div className="health-list">
+              <div className="health-item">
+                <div>
+                  <span className="health-label">Healthy products</span>
+                  <strong className="health-value">{healthyProductsCount}</strong>
+                </div>
+                <div className="health-badge healthy">Healthy</div>
+              </div>
+
+              <div className="health-item">
+                <div>
+                  <span className="health-label">Low stock products</span>
+                  <strong className="health-value">{lowStockCount}</strong>
+                </div>
+                <div className="health-badge low">Low stock</div>
+              </div>
+
+              <div className="health-item">
+                <div>
+                  <span className="health-label">Low stock percentage</span>
+                  <strong className="health-value">{lowStockPercentage}%</strong>
+                </div>
+                <div className="health-badge neutral">Current page</div>
+              </div>
+            </div>
+
+            <div className="progress-block">
+              <div className="progress-header">
+                <span>Catalog health</span>
+                <strong>{Math.max(0, 100 - lowStockPercentage)}%</strong>
+              </div>
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{ width: `${Math.max(0, 100 - lowStockPercentage)}%` }}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="panel summary-panel">
+            <div className="panel-header">
+              <h2>Category Overview</h2>
+              <p>Top categories from the current page results.</p>
+            </div>
+
+            {categoryOverview.length === 0 ? (
+              <div className="empty-results compact-empty">
+                <h3>No category data yet</h3>
+                <p>Create some products to see a category summary.</p>
+              </div>
+            ) : (
+              <div className="category-overview-list">
+                {categoryOverview.map((item) => (
+                  <div key={item.name} className="category-overview-item">
+                    <div className="category-main">
+                      <strong>{item.name}</strong>
+                      <span>{item.count} products</span>
+                    </div>
+                    <div className="category-meta">
+                      <span>{item.availableUnits} available units</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
 
         <div className="content-grid">
@@ -581,7 +688,7 @@ export default function ProductsPage() {
           <section className="panel">
             <div className="panel-header">
               <h2>Products</h2>
-              <p>Overview of all products currently in the system.</p>
+              <p>Overview of products from the current query.</p>
             </div>
 
             <div className="filters-bar">
@@ -592,7 +699,7 @@ export default function ProductsPage() {
                     id="searchTerm"
                     type="text"
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => handleSearchChange(e.target.value)}
                     placeholder="Search by SKU or product name"
                   />
                 </div>
@@ -602,7 +709,7 @@ export default function ProductsPage() {
                   <select
                     id="filterCategory"
                     value={selectedCategoryId}
-                    onChange={(e) => setSelectedCategoryId(Number(e.target.value))}
+                    onChange={(e) => handleCategoryFilterChange(Number(e.target.value))}
                   >
                     <option value={0}>All categories</option>
                     {categories.map((category) => (
@@ -618,7 +725,7 @@ export default function ProductsPage() {
                   <select
                     id="filterStockStatus"
                     value={stockFilter}
-                    onChange={(e) => setStockFilter(e.target.value as StockFilter)}
+                    onChange={(e) => handleStockFilterChange(e.target.value as StockFilter)}
                   >
                     <option value="all">All products</option>
                     <option value="healthy">Healthy only</option>
@@ -631,7 +738,7 @@ export default function ProductsPage() {
                   <select
                     id="sortBy"
                     value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    onChange={(e) => handleSortChange(e.target.value as SortOption)}
                   >
                     <option value="newest">Newest first</option>
                     <option value="oldest">Oldest first</option>
@@ -649,7 +756,7 @@ export default function ProductsPage() {
                   <select
                     id="pageSize"
                     value={pageSize}
-                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    onChange={(e) => handlePageSizeChange(Number(e.target.value))}
                   >
                     <option value={5}>5 per page</option>
                     <option value={10}>10 per page</option>
@@ -671,7 +778,7 @@ export default function ProductsPage() {
               <div className="filters-summary">
                 <span>
                   Showing <strong>{startItem}</strong>–<strong>{endItem}</strong> of{" "}
-                  <strong>{displayedProducts.length}</strong> matching products
+                  <strong>{serverData.totalCount}</strong> matching products
                 </span>
                 <span>
                   Sorted by <strong>{getSortLabel(sortBy)}</strong>
@@ -681,7 +788,7 @@ export default function ProductsPage() {
 
             {loadingProducts ? (
               <p className="state-text">Loading products...</p>
-            ) : displayedProducts.length === 0 ? (
+            ) : serverData.totalCount === 0 ? (
               <div className="empty-results">
                 <h3>No matching products</h3>
                 <p>Try changing your search, filters, or sorting.</p>
@@ -707,7 +814,7 @@ export default function ProductsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {paginatedProducts.map((product) => {
+                      {products.map((product) => {
                         const available = getAvailableStock(product);
                         const isLowStock = available <= product.reorderThreshold;
                         const isDeleting = deletingProductId === product.id;
@@ -759,7 +866,8 @@ export default function ProductsPage() {
 
                 <div className="pagination-bar">
                   <div className="pagination-info">
-                    Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                    Page <strong>{serverData.page}</strong> of{" "}
+                    <strong>{Math.max(serverData.totalPages, 1)}</strong>
                   </div>
 
                   <div className="pagination-controls">
@@ -793,9 +901,11 @@ export default function ProductsPage() {
                       type="button"
                       className="page-button"
                       onClick={() =>
-                        setCurrentPage((page) => Math.min(totalPages, page + 1))
+                        setCurrentPage((page) =>
+                          Math.min(Math.max(serverData.totalPages, 1), page + 1)
+                        )
                       }
-                      disabled={currentPage === totalPages}
+                      disabled={currentPage === Math.max(serverData.totalPages, 1)}
                     >
                       Next
                     </button>
