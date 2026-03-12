@@ -140,14 +140,17 @@ body {
   grid-column: 1 / -1;
 }
 
-.form-field label {
+.form-field label,
+.filter-field label {
   font-weight: 600;
   font-size: 0.95rem;
 }
 
 .form-field input,
 .form-field textarea,
-.form-field select {
+.form-field select,
+.filter-field input,
+.filter-field select {
   width: 100%;
   border: 1px solid #cbd5e1;
   border-radius: var(--radius-sm);
@@ -160,7 +163,9 @@ body {
 
 .form-field input:focus,
 .form-field textarea:focus,
-.form-field select:focus {
+.form-field select:focus,
+.filter-field input:focus,
+.filter-field select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
 }
@@ -192,7 +197,8 @@ body {
 .primary-button:disabled,
 .secondary-button:disabled,
 .table-button:disabled,
-.modal-button:disabled {
+.modal-button:disabled,
+.clear-filters-button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
   transform: none;
@@ -202,6 +208,79 @@ body {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.filters-bar {
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f8fbff 100%);
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-field-search {
+  min-width: 0;
+}
+
+.filter-actions {
+  display: flex;
+  align-items: end;
+}
+
+.clear-filters-button {
+  border: none;
+  background: #eef2f7;
+  color: var(--text);
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.2s ease;
+  white-space: nowrap;
+}
+
+.clear-filters-button:hover {
+  transform: translateY(-1px);
+  background: #e2e8f0;
+}
+
+.filters-summary {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.empty-results {
+  padding: 28px 20px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 18px;
+  background: #fafcff;
+  text-align: center;
+}
+
+.empty-results h3 {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+}
+
+.empty-results p {
+  margin: 0;
+  color: var(--muted);
 }
 
 .table-actions {
@@ -450,12 +529,21 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .form-grid {
+  .form-grid,
+  .filters-grid {
     grid-template-columns: 1fr;
   }
 
   .page-title {
     font-size: 1.9rem;
+  }
+
+  .filter-actions {
+    align-items: stretch;
+  }
+
+  .clear-filters-button {
+    width: 100%;
   }
 }
 

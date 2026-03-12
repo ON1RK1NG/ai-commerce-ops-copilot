@@ -14,6 +14,8 @@ import type {
 } from "../types/product";
 import "../styles/ProductsPage.css";
 
+type StockFilter = "all" | "healthy" | "low";
+
 const initialForm: CreateProductRequest = {
   sku: "",
   name: "",
@@ -38,6 +40,10 @@ export default function ProductsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState(0);
+  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
+
   const isEditMode = editingProductId !== null;
   const isDeleteModalOpen = productToDelete !== null;
 
@@ -52,6 +58,30 @@ export default function ProductsPage() {
   const totalStock = useMemo(() => {
     return products.reduce((sum, product) => sum + product.stockOnHand, 0);
   }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return products.filter((product) => {
+      const available = product.stockOnHand - product.stockReserved;
+      const isLowStock = available <= product.reorderThreshold;
+
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        product.sku.toLowerCase().includes(normalizedSearch) ||
+        product.name.toLowerCase().includes(normalizedSearch);
+
+      const matchesCategory =
+        selectedCategoryId === 0 || product.categoryId === selectedCategoryId;
+
+      const matchesStockFilter =
+        stockFilter === "all" ||
+        (stockFilter === "low" && isLowStock) ||
+        (stockFilter === "healthy" && !isLowStock);
+
+      return matchesSearch && matchesCategory && matchesStockFilter;
+    });
+  }, [products, searchTerm, selectedCategoryId, stockFilter]);
 
   async function loadProducts() {
     try {
@@ -86,6 +116,12 @@ export default function ProductsPage() {
   function resetForm() {
     setForm(initialForm);
     setEditingProductId(null);
+  }
+
+  function clearFilters() {
+    setSearchTerm("");
+    setSelectedCategoryId(0);
+    setStockFilter("all");
   }
 
   function handleChange(
@@ -412,10 +448,72 @@ export default function ProductsPage() {
               <p>Overview of all products currently in the system.</p>
             </div>
 
+            <div className="filters-bar">
+              <div className="filters-grid">
+                <div className="filter-field filter-field-search">
+                  <label htmlFor="searchTerm">Search</label>
+                  <input
+                    id="searchTerm"
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search by SKU or product name"
+                  />
+                </div>
+
+                <div className="filter-field">
+                  <label htmlFor="filterCategory">Category</label>
+                  <select
+                    id="filterCategory"
+                    value={selectedCategoryId}
+                    onChange={(e) => setSelectedCategoryId(Number(e.target.value))}
+                  >
+                    <option value={0}>All categories</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="filter-field">
+                  <label htmlFor="filterStockStatus">Stock Status</label>
+                  <select
+                    id="filterStockStatus"
+                    value={stockFilter}
+                    onChange={(e) => setStockFilter(e.target.value as StockFilter)}
+                  >
+                    <option value="all">All products</option>
+                    <option value="healthy">Healthy only</option>
+                    <option value="low">Low stock only</option>
+                  </select>
+                </div>
+
+                <div className="filter-actions">
+                  <button
+                    type="button"
+                    className="clear-filters-button"
+                    onClick={clearFilters}
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              </div>
+
+              <div className="filters-summary">
+                Showing <strong>{filteredProducts.length}</strong> of{" "}
+                <strong>{products.length}</strong> products
+              </div>
+            </div>
+
             {loadingProducts ? (
               <p className="state-text">Loading products...</p>
-            ) : products.length === 0 ? (
-              <p className="state-text">No products found.</p>
+            ) : filteredProducts.length === 0 ? (
+              <div className="empty-results">
+                <h3>No matching products</h3>
+                <p>Try changing your search or filters.</p>
+              </div>
             ) : (
               <div className="table-wrapper">
                 <table className="products-table">
@@ -436,7 +534,7 @@ export default function ProductsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.map((product) => {
+                    {filteredProducts.map((product) => {
                       const available = product.stockOnHand - product.stockReserved;
                       const isLowStock = available <= product.reorderThreshold;
                       const isDeleting = deletingProductId === product.id;
@@ -492,17 +590,14 @@ export default function ProductsPage() {
 
       {isDeleteModalOpen && productToDelete && (
         <div className="modal-overlay" onClick={handleCloseDeleteModal}>
-          <div
-            className="modal-card"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-icon">!</div>
 
             <h3 className="modal-title">Delete product?</h3>
 
             <p className="modal-text">
-              You are about to delete <strong>{productToDelete.name}</strong>.
-              This action cannot be undone.
+              You are about to delete <strong>{productToDelete.name}</strong>. This
+              action cannot be undone.
             </p>
 
             <div className="modal-actions">
