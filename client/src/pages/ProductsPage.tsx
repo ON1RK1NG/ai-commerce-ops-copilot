@@ -15,6 +15,15 @@ import type {
 import "../styles/ProductsPage.css";
 
 type StockFilter = "all" | "healthy" | "low";
+type SortOption =
+  | "newest"
+  | "oldest"
+  | "name-asc"
+  | "name-desc"
+  | "price-asc"
+  | "price-desc"
+  | "available-asc"
+  | "available-desc";
 
 const initialForm: CreateProductRequest = {
   sku: "",
@@ -26,6 +35,33 @@ const initialForm: CreateProductRequest = {
   stockReserved: 0,
   reorderThreshold: 0,
 };
+
+function getAvailableStock(product: Product) {
+  return product.stockOnHand - product.stockReserved;
+}
+
+function getSortLabel(sortBy: SortOption) {
+  switch (sortBy) {
+    case "newest":
+      return "Newest first";
+    case "oldest":
+      return "Oldest first";
+    case "name-asc":
+      return "Name A–Z";
+    case "name-desc":
+      return "Name Z–A";
+    case "price-asc":
+      return "Price low to high";
+    case "price-desc":
+      return "Price high to low";
+    case "available-asc":
+      return "Lowest available stock";
+    case "available-desc":
+      return "Highest available stock";
+    default:
+      return "Newest first";
+  }
+}
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -43,6 +79,7 @@ export default function ProductsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState(0);
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
+  const [sortBy, setSortBy] = useState<SortOption>("newest");
 
   const isEditMode = editingProductId !== null;
   const isDeleteModalOpen = productToDelete !== null;
@@ -51,7 +88,7 @@ export default function ProductsPage() {
 
   const lowStockCount = useMemo(() => {
     return products.filter(
-      (p) => p.stockOnHand - p.stockReserved <= p.reorderThreshold
+      (p) => getAvailableStock(p) <= p.reorderThreshold
     ).length;
   }, [products]);
 
@@ -63,7 +100,7 @@ export default function ProductsPage() {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
     return products.filter((product) => {
-      const available = product.stockOnHand - product.stockReserved;
+      const available = getAvailableStock(product);
       const isLowStock = available <= product.reorderThreshold;
 
       const matchesSearch =
@@ -82,6 +119,47 @@ export default function ProductsPage() {
       return matchesSearch && matchesCategory && matchesStockFilter;
     });
   }, [products, searchTerm, selectedCategoryId, stockFilter]);
+
+  const displayedProducts = useMemo(() => {
+    const sorted = [...filteredProducts];
+
+    sorted.sort((a, b) => {
+      switch (sortBy) {
+        case "newest":
+          return (
+            new Date(b.createdAtUtc).getTime() - new Date(a.createdAtUtc).getTime()
+          );
+
+        case "oldest":
+          return (
+            new Date(a.createdAtUtc).getTime() - new Date(b.createdAtUtc).getTime()
+          );
+
+        case "name-asc":
+          return a.name.localeCompare(b.name);
+
+        case "name-desc":
+          return b.name.localeCompare(a.name);
+
+        case "price-asc":
+          return a.price - b.price;
+
+        case "price-desc":
+          return b.price - a.price;
+
+        case "available-asc":
+          return getAvailableStock(a) - getAvailableStock(b);
+
+        case "available-desc":
+          return getAvailableStock(b) - getAvailableStock(a);
+
+        default:
+          return 0;
+      }
+    });
+
+    return sorted;
+  }, [filteredProducts, sortBy]);
 
   async function loadProducts() {
     try {
@@ -122,6 +200,7 @@ export default function ProductsPage() {
     setSearchTerm("");
     setSelectedCategoryId(0);
     setStockFilter("all");
+    setSortBy("newest");
   }
 
   function handleChange(
@@ -490,6 +569,24 @@ export default function ProductsPage() {
                   </select>
                 </div>
 
+                <div className="filter-field">
+                  <label htmlFor="sortBy">Sort By</label>
+                  <select
+                    id="sortBy"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="name-asc">Name A–Z</option>
+                    <option value="name-desc">Name Z–A</option>
+                    <option value="price-asc">Price low to high</option>
+                    <option value="price-desc">Price high to low</option>
+                    <option value="available-asc">Lowest available stock</option>
+                    <option value="available-desc">Highest available stock</option>
+                  </select>
+                </div>
+
                 <div className="filter-actions">
                   <button
                     type="button"
@@ -502,17 +599,22 @@ export default function ProductsPage() {
               </div>
 
               <div className="filters-summary">
-                Showing <strong>{filteredProducts.length}</strong> of{" "}
-                <strong>{products.length}</strong> products
+                <span>
+                  Showing <strong>{displayedProducts.length}</strong> of{" "}
+                  <strong>{products.length}</strong> products
+                </span>
+                <span>
+                  Sorted by <strong>{getSortLabel(sortBy)}</strong>
+                </span>
               </div>
             </div>
 
             {loadingProducts ? (
               <p className="state-text">Loading products...</p>
-            ) : filteredProducts.length === 0 ? (
+            ) : displayedProducts.length === 0 ? (
               <div className="empty-results">
                 <h3>No matching products</h3>
-                <p>Try changing your search or filters.</p>
+                <p>Try changing your search, filters, or sorting.</p>
               </div>
             ) : (
               <div className="table-wrapper">
@@ -534,8 +636,8 @@ export default function ProductsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredProducts.map((product) => {
-                      const available = product.stockOnHand - product.stockReserved;
+                    {displayedProducts.map((product) => {
+                      const available = getAvailableStock(product);
                       const isLowStock = available <= product.reorderThreshold;
                       const isDeleting = deletingProductId === product.id;
 

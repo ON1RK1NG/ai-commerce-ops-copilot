@@ -220,7 +220,7 @@ body {
 
 .filters-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr auto;
+  grid-template-columns: 2fr 1fr 1fr 1fr auto;
   gap: 14px;
   align-items: end;
 }
@@ -263,6 +263,10 @@ body {
   margin-top: 14px;
   color: var(--muted);
   font-size: 0.95rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .empty-results {
@@ -570,6 +574,10 @@ body {
   }
 
   .form-actions {
+    flex-direction: column;
+  }
+
+  .filters-summary {
     flex-direction: column;
   }
 
