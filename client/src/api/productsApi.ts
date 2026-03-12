@@ -1,6 +1,7 @@
 import type {
   Category,
   CreateProductRequest,
+  InventorySummary,
   Product,
   ProductListResponse,
   ProductQueryParams,
@@ -19,7 +20,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     return undefined as T;
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 function buildQueryString(params: ProductQueryParams): string {
@@ -61,12 +62,24 @@ export async function getProducts(
   return handleResponse<ProductListResponse>(response);
 }
 
+export async function getProductSummary(
+  params: ProductQueryParams = {}
+): Promise<InventorySummary> {
+  const queryString = buildQueryString(params);
+  const response = await fetch(
+    `${API_BASE_URL}/api/products/summary${queryString}`
+  );
+  return handleResponse<InventorySummary>(response);
+}
+
 export async function getCategories(): Promise<Category[]> {
   const response = await fetch(`${API_BASE_URL}/api/categories`);
   return handleResponse<Category[]>(response);
 }
 
-export async function createProduct(request: CreateProductRequest): Promise<Product> {
+export async function createProduct(
+  request: CreateProductRequest
+): Promise<Product> {
   const response = await fetch(`${API_BASE_URL}/api/products`, {
     method: "POST",
     headers: {

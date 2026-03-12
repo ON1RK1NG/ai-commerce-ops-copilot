@@ -16,13 +16,13 @@ public class ProductsController : ControllerBase
     private static readonly Expression<Func<Product, ProductDto>> ProductProjection = x => new ProductDto
     {
         Id = x.Id,
-        Sku = x.Sku,
-        Name = x.Name,
-        Description = x.Description,
+        Sku = x.Sku ?? string.Empty,
+        Name = x.Name ?? string.Empty,
+        Description = x.Description ?? string.Empty,
         Price = x.Price,
         IsActive = x.IsActive,
         CategoryId = x.CategoryId,
-        CategoryName = x.Category != null ? x.Category.Name : string.Empty,
+        CategoryName = x.Category != null ? x.Category.Name ?? string.Empty : string.Empty,
         StockOnHand = x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0,
         StockReserved = x.InventoryItem != null ? x.InventoryItem.StockReserved : 0,
         ReorderThreshold = x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0,
@@ -40,47 +40,7 @@ public class ProductsController : ControllerBase
         var page = query.Page < 1 ? 1 : query.Page;
         var pageSize = query.PageSize <= 0 ? 10 : Math.Min(query.PageSize, 100);
 
-        IQueryable<Product> productsQuery = _context.Products
-            .AsNoTracking()
-            .Include(x => x.Category)
-            .Include(x => x.InventoryItem);
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
-        {
-            var search = query.Search.Trim().ToLower();
-
-            productsQuery = productsQuery.Where(x =>
-                x.Sku.ToLower().Contains(search) ||
-                x.Name.ToLower().Contains(search));
-        }
-
-        if (query.CategoryId.HasValue && query.CategoryId.Value > 0)
-        {
-            productsQuery = productsQuery.Where(x => x.CategoryId == query.CategoryId.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.StockStatus))
-        {
-            var stockStatus = query.StockStatus.Trim().ToLower();
-
-            if (stockStatus == "low")
-            {
-                productsQuery = productsQuery.Where(x =>
-                    (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
-                    (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)
-                    <=
-                    (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0));
-            }
-            else if (stockStatus == "healthy")
-            {
-                productsQuery = productsQuery.Where(x =>
-                    (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
-                    (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)
-                    >
-                    (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0));
-            }
-        }
-
+        var productsQuery = BuildFilteredProductsQuery(query);
         productsQuery = ApplySorting(productsQuery, query.SortBy);
 
         var totalCount = await productsQuery.CountAsync();
@@ -98,6 +58,67 @@ public class ProductsController : ControllerBase
             Page = page,
             PageSize = pageSize,
             TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+        };
+
+        return Ok(response);
+    }
+
+    [HttpGet("summary")]
+    public async Task<ActionResult<InventorySummaryDto>> GetSummary([FromQuery] ProductQueryParametersDto query)
+    {
+        var productsQuery = BuildFilteredProductsQuery(query);
+
+        var totalMatchingProducts = await productsQuery.CountAsync();
+
+        var lowStockCount = await productsQuery.CountAsync(x =>
+            ((x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+             (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0))
+            <= (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0));
+
+        var healthyProductsCount = totalMatchingProducts - lowStockCount;
+
+        var totals = await productsQuery
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                TotalStockOnHand = g.Sum(x => x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0),
+                TotalAvailableUnits = g.Sum(x =>
+                    (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+                    (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)),
+                AveragePrice = g.Average(x => x.Price)
+            })
+            .FirstOrDefaultAsync();
+
+        var topCategories = await productsQuery
+            .GroupBy(x => x.Category != null ? x.Category.Name : "Uncategorized")
+            .Select(g => new InventoryCategorySummaryDto
+            {
+                Name = g.Key ?? "Uncategorized",
+                Count = g.Count(),
+                AvailableUnits = g.Sum(x =>
+                    (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+                    (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0))
+            })
+            .OrderByDescending(x => x.Count)
+            .ThenByDescending(x => x.AvailableUnits)
+            .Take(5)
+            .ToListAsync();
+
+        var lowStockPercentage = totalMatchingProducts == 0
+            ? 0
+            : (int)Math.Round((decimal)lowStockCount * 100 / totalMatchingProducts, MidpointRounding.AwayFromZero);
+
+        var response = new InventorySummaryDto
+        {
+            TotalMatchingProducts = totalMatchingProducts,
+            HealthyProductsCount = healthyProductsCount,
+            LowStockCount = lowStockCount,
+            TotalStockOnHand = totals?.TotalStockOnHand ?? 0,
+            TotalAvailableUnits = totals?.TotalAvailableUnits ?? 0,
+            AveragePrice = totals?.AveragePrice ?? 0,
+            LowStockPercentage = lowStockPercentage,
+            CatalogHealthPercentage = totalMatchingProducts == 0 ? 100 : Math.Max(0, 100 - lowStockPercentage),
+            TopCategories = topCategories
         };
 
         return Ok(response);
@@ -243,6 +264,47 @@ public class ProductsController : ControllerBase
         return NoContent();
     }
 
+    private IQueryable<Product> BuildFilteredProductsQuery(ProductQueryParametersDto query)
+    {
+        IQueryable<Product> productsQuery = _context.Products.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim().ToLower();
+
+            productsQuery = productsQuery.Where(x =>
+                (x.Sku ?? string.Empty).ToLower().Contains(search) ||
+                (x.Name ?? string.Empty).ToLower().Contains(search));
+        }
+
+        if (query.CategoryId.HasValue && query.CategoryId.Value > 0)
+        {
+            productsQuery = productsQuery.Where(x => x.CategoryId == query.CategoryId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.StockStatus))
+        {
+            var stockStatus = query.StockStatus.Trim().ToLower();
+
+            if (stockStatus == "low")
+            {
+                productsQuery = productsQuery.Where(x =>
+                    ((x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+                     (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0))
+                    <= (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0));
+            }
+            else if (stockStatus == "healthy")
+            {
+                productsQuery = productsQuery.Where(x =>
+                    ((x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) -
+                     (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0))
+                    > (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0));
+            }
+        }
+
+        return productsQuery;
+    }
+
     private static IQueryable<Product> ApplySorting(IQueryable<Product> query, string? sortBy)
     {
         var normalizedSort = sortBy?.Trim().ToLower();
@@ -264,7 +326,7 @@ public class ProductsController : ControllerBase
         };
     }
 
-    private async Task<ActionResult?> ValidateRequestAsync(CreateProductRequest request)
+    private async Task<ActionResult<ProductDto>?> ValidateRequestAsync(CreateProductRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Sku))
             return BadRequest("SKU is required.");

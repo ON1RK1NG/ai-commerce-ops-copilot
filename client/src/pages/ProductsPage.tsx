@@ -1,14 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import {
   createProduct,
   deleteProduct,
   getCategories,
   getProducts,
+  getProductSummary,
   updateProduct,
 } from "../api/productsApi";
 import type {
   Category,
   CreateProductRequest,
+  InventorySummary,
   Product,
   ProductListResponse,
   SortOption,
@@ -26,6 +34,26 @@ const initialForm: CreateProductRequest = {
   stockOnHand: 0,
   stockReserved: 0,
   reorderThreshold: 0,
+};
+
+const initialServerData: ProductListResponse = {
+  items: [],
+  totalCount: 0,
+  page: 1,
+  pageSize: 10,
+  totalPages: 1,
+};
+
+const initialSummary: InventorySummary = {
+  totalMatchingProducts: 0,
+  healthyProductsCount: 0,
+  lowStockCount: 0,
+  totalStockOnHand: 0,
+  totalAvailableUnits: 0,
+  averagePrice: 0,
+  lowStockPercentage: 0,
+  catalogHealthPercentage: 100,
+  topCategories: [],
 };
 
 function getAvailableStock(product: Product) {
@@ -60,7 +88,7 @@ function buildPaginationItems(currentPage: number, totalPages: number) {
     return Array.from({ length: totalPages }, (_, index) => index + 1);
   }
 
-  const items: Array<number | string> = [1];
+  const items: Array<number | "start-ellipsis" | "end-ellipsis"> = [1];
 
   if (currentPage > 3) {
     items.push("start-ellipsis");
@@ -88,94 +116,27 @@ export default function ProductsPage() {
   const [form, setForm] = useState<CreateProductRequest>(initialForm);
   const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [deletingProductId, setDeletingProductId] = useState<number | null>(null);
+  const [deletingProductId, setDeletingProductId] = useState<number | null>(
+    null
+  );
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState(0);
   const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
-
-  const [serverData, setServerData] = useState<ProductListResponse>({
-    items: [],
-    totalCount: 0,
-    page: 1,
-    pageSize: 10,
-    totalPages: 1,
-  });
+  const [serverData, setServerData] =
+    useState<ProductListResponse>(initialServerData);
+  const [summary, setSummary] = useState<InventorySummary>(initialSummary);
 
   const isEditMode = editingProductId !== null;
   const isDeleteModalOpen = productToDelete !== null;
-
-  const totalProducts = serverData.totalCount;
-
-  const lowStockCount = useMemo(() => {
-    return products.filter(
-      (p) => getAvailableStock(p) <= p.reorderThreshold
-    ).length;
-  }, [products]);
-
-  const healthyProductsCount = useMemo(() => {
-    return products.filter(
-      (p) => getAvailableStock(p) > p.reorderThreshold
-    ).length;
-  }, [products]);
-
-  const totalStock = useMemo(() => {
-    return products.reduce((sum, product) => sum + product.stockOnHand, 0);
-  }, [products]);
-
-  const totalAvailableUnits = useMemo(() => {
-    return products.reduce((sum, product) => sum + getAvailableStock(product), 0);
-  }, [products]);
-
-  const averagePrice = useMemo(() => {
-    if (products.length === 0) {
-      return 0;
-    }
-
-    const totalPrice = products.reduce((sum, product) => sum + product.price, 0);
-    return totalPrice / products.length;
-  }, [products]);
-
-  const lowStockPercentage = useMemo(() => {
-    if (products.length === 0) {
-      return 0;
-    }
-
-    return Math.round((lowStockCount / products.length) * 100);
-  }, [lowStockCount, products.length]);
-
-  const categoryOverview = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; count: number; availableUnits: number }
-    >();
-
-    for (const product of products) {
-      const key = product.categoryName || "Uncategorized";
-      const existing = map.get(key);
-
-      if (existing) {
-        existing.count += 1;
-        existing.availableUnits += getAvailableStock(product);
-      } else {
-        map.set(key, {
-          name: key,
-          count: 1,
-          availableUnits: getAvailableStock(product),
-        });
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => b.count - a.count).slice(0, 5);
-  }, [products]);
 
   const paginationItems = useMemo(() => {
     return buildPaginationItems(currentPage, Math.max(serverData.totalPages, 1));
@@ -212,6 +173,24 @@ export default function ProductsPage() {
     }
   }
 
+  async function loadSummary() {
+    try {
+      setLoadingSummary(true);
+
+      const response = await getProductSummary({
+        search: searchTerm,
+        categoryId: selectedCategoryId > 0 ? selectedCategoryId : undefined,
+        stockStatus: stockFilter === "all" ? undefined : stockFilter,
+      });
+
+      setSummary(response);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load summary");
+    } finally {
+      setLoadingSummary(false);
+    }
+  }
+
   async function loadCategories() {
     try {
       setLoadingCategories(true);
@@ -225,11 +204,12 @@ export default function ProductsPage() {
   }
 
   useEffect(() => {
-    loadCategories();
+    void loadCategories();
   }, []);
 
   useEffect(() => {
-    loadProducts();
+    void loadProducts();
+    void loadSummary();
   }, [searchTerm, selectedCategoryId, stockFilter, sortBy, currentPage, pageSize]);
 
   function resetForm() {
@@ -247,9 +227,10 @@ export default function ProductsPage() {
   }
 
   function handleChange(
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) {
     const { name, value } = e.target;
+
     const numericFields = [
       "price",
       "categoryId",
@@ -304,10 +285,7 @@ export default function ProductsPage() {
       reorderThreshold: product.reorderThreshold,
     });
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function handleCancelEdit() {
@@ -352,7 +330,7 @@ export default function ProductsPage() {
       if (products.length === 1 && currentPage > 1) {
         setCurrentPage((page) => page - 1);
       } else {
-        await loadProducts();
+        await Promise.all([loadProducts(), loadSummary()]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete product.");
@@ -361,7 +339,7 @@ export default function ProductsPage() {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
     setSuccess("");
@@ -404,14 +382,14 @@ export default function ProductsPage() {
       }
 
       resetForm();
-      await loadProducts();
+      await Promise.all([loadProducts(), loadSummary()]);
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
           : isEditMode
-            ? "Failed to update product."
-            : "Failed to create product."
+          ? "Failed to update product."
+          : "Failed to create product."
       );
     } finally {
       setSubmitting(false);
@@ -425,7 +403,8 @@ export default function ProductsPage() {
           <div>
             <h1 className="page-title">Inventory Dashboard</h1>
             <p className="page-subtitle">
-              Manage products, monitor stock, and keep track of low inventory items.
+              Manage products, monitor stock, and keep track of low inventory
+              items.
             </p>
           </div>
         </div>
@@ -438,50 +417,68 @@ export default function ProductsPage() {
 
           <div className="stat-card">
             <span className="stat-label">Total Matching Products</span>
-            <strong className="stat-value">{totalProducts}</strong>
+            <strong className="stat-value">
+              {summary.totalMatchingProducts}
+            </strong>
           </div>
 
           <div className="stat-card">
             <span className="stat-label">Healthy Products</span>
-            <strong className="stat-value">{healthyProductsCount}</strong>
+            <strong className="stat-value">
+              {summary.healthyProductsCount}
+            </strong>
           </div>
 
           <div className="stat-card">
             <span className="stat-label">Low Stock Items</span>
-            <strong className="stat-value warning-text">{lowStockCount}</strong>
+            <strong className="stat-value warning-text">
+              {summary.lowStockCount}
+            </strong>
           </div>
 
           <div className="stat-card">
             <span className="stat-label">Available Units</span>
-            <strong className="stat-value">{totalAvailableUnits}</strong>
+            <strong className="stat-value">
+              {summary.totalAvailableUnits}
+            </strong>
           </div>
 
           <div className="stat-card">
-            <span className="stat-label">Average Page Price</span>
-            <strong className="stat-value">${averagePrice.toFixed(2)}</strong>
+            <span className="stat-label">Average Catalog Price</span>
+            <strong className="stat-value">
+              ${summary.averagePrice.toFixed(2)}
+            </strong>
           </div>
         </div>
 
         <div className="dashboard-summary-grid">
-          <section className="panel summary-panel">
+          <section className="panel">
             <div className="panel-header">
               <h2>Inventory Health</h2>
-              <p>Quick overview of the currently loaded products.</p>
+              <p>
+                {loadingSummary
+                  ? "Refreshing catalog summary..."
+                  : "Quick overview of the filtered catalog."}
+              </p>
             </div>
 
-            <div className="health-list">
+            <div className="health-grid">
               <div className="health-item">
                 <div>
                   <span className="health-label">Healthy products</span>
-                  <strong className="health-value">{healthyProductsCount}</strong>
+                  <strong className="health-value">
+                    {summary.healthyProductsCount}
+                  </strong>
                 </div>
-                <div className="health-badge healthy">Healthy</div>
+                <div className="health-badge ok">Healthy</div>
               </div>
 
               <div className="health-item">
                 <div>
                   <span className="health-label">Low stock products</span>
-                  <strong className="health-value">{lowStockCount}</strong>
+                  <strong className="health-value">
+                    {summary.lowStockCount}
+                  </strong>
                 </div>
                 <div className="health-badge low">Low stock</div>
               </div>
@@ -489,46 +486,47 @@ export default function ProductsPage() {
               <div className="health-item">
                 <div>
                   <span className="health-label">Low stock percentage</span>
-                  <strong className="health-value">{lowStockPercentage}%</strong>
+                  <strong className="health-value">
+                    {summary.lowStockPercentage}%
+                  </strong>
                 </div>
-                <div className="health-badge neutral">Current page</div>
+                <div className="health-badge neutral">Catalog</div>
               </div>
-            </div>
 
-            <div className="progress-block">
-              <div className="progress-header">
-                <span>Catalog health</span>
-                <strong>{Math.max(0, 100 - lowStockPercentage)}%</strong>
-              </div>
-              <div className="progress-track">
-                <div
-                  className="progress-fill"
-                  style={{ width: `${Math.max(0, 100 - lowStockPercentage)}%` }}
-                />
+              <div className="health-item">
+                <div>
+                  <span className="health-label">Catalog health</span>
+                  <strong className="health-value">
+                    {summary.catalogHealthPercentage}%
+                  </strong>
+                </div>
+                <div className="health-badge ok">Overall</div>
               </div>
             </div>
           </section>
 
-          <section className="panel summary-panel">
+          <section className="panel">
             <div className="panel-header">
               <h2>Category Overview</h2>
-              <p>Top categories from the current page results.</p>
+              <p>Top categories from the filtered catalog.</p>
             </div>
 
-            {categoryOverview.length === 0 ? (
-              <div className="empty-results compact-empty">
+            {summary.topCategories.length === 0 ? (
+              <div className="empty-results">
                 <h3>No category data yet</h3>
                 <p>Create some products to see a category summary.</p>
               </div>
             ) : (
               <div className="category-overview-list">
-                {categoryOverview.map((item) => (
-                  <div key={item.name} className="category-overview-item">
-                    <div className="category-main">
+                {summary.topCategories.map((item) => (
+                  <div className="category-overview-item" key={item.name}>
+                    <div>
                       <strong>{item.name}</strong>
+                    </div>
+                    <div>
                       <span>{item.count} products</span>
                     </div>
-                    <div className="category-meta">
+                    <div>
                       <span>{item.availableUnits} available units</span>
                     </div>
                   </div>
@@ -664,8 +662,8 @@ export default function ProductsPage() {
                       ? "Updating..."
                       : "Creating..."
                     : isEditMode
-                      ? "Update Product"
-                      : "Create Product"}
+                    ? "Update Product"
+                    : "Create Product"}
                 </button>
 
                 {isEditMode && (
@@ -709,7 +707,9 @@ export default function ProductsPage() {
                   <select
                     id="filterCategory"
                     value={selectedCategoryId}
-                    onChange={(e) => handleCategoryFilterChange(Number(e.target.value))}
+                    onChange={(e) =>
+                      handleCategoryFilterChange(Number(e.target.value))
+                    }
                   >
                     <option value={0}>All categories</option>
                     {categories.map((category) => (
@@ -725,7 +725,9 @@ export default function ProductsPage() {
                   <select
                     id="filterStockStatus"
                     value={stockFilter}
-                    onChange={(e) => handleStockFilterChange(e.target.value as StockFilter)}
+                    onChange={(e) =>
+                      handleStockFilterChange(e.target.value as StockFilter)
+                    }
                   >
                     <option value="all">All products</option>
                     <option value="healthy">Healthy only</option>
@@ -780,6 +782,7 @@ export default function ProductsPage() {
                   Showing <strong>{startItem}</strong>–<strong>{endItem}</strong> of{" "}
                   <strong>{serverData.totalCount}</strong> matching products
                 </span>
+
                 <span>
                   Sorted by <strong>{getSortLabel(sortBy)}</strong>
                 </span>
@@ -813,6 +816,7 @@ export default function ProductsPage() {
                         <th>Actions</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {products.map((product) => {
                         const available = getAvailableStock(product);
@@ -820,7 +824,10 @@ export default function ProductsPage() {
                         const isDeleting = deletingProductId === product.id;
 
                         return (
-                          <tr key={product.id} className={isLowStock ? "row-low-stock" : ""}>
+                          <tr
+                            key={product.id}
+                            className={isLowStock ? "row-low-stock" : ""}
+                          >
                             <td>{product.id}</td>
                             <td>{product.sku}</td>
                             <td>{product.name}</td>
@@ -832,7 +839,13 @@ export default function ProductsPage() {
                             <td>{product.reorderThreshold}</td>
                             <td>{available}</td>
                             <td>
-                              <span className={isLowStock ? "status-badge low" : "status-badge ok"}>
+                              <span
+                                className={
+                                  isLowStock
+                                    ? "status-badge low"
+                                    : "status-badge ok"
+                                }
+                              >
                                 {isLowStock ? "Low Stock" : "Healthy"}
                               </span>
                             </td>
@@ -881,19 +894,24 @@ export default function ProductsPage() {
                     </button>
 
                     {paginationItems.map((item, index) =>
-                      typeof item === "string" ? (
-                        <span key={`${item}-${index}`} className="page-ellipsis">
-                          ...
-                        </span>
-                      ) : (
+                      typeof item === "number" ? (
                         <button
-                          key={item}
+                          key={`${item}-${index}`}
                           type="button"
-                          className={`page-button ${currentPage === item ? "active" : ""}`}
+                          className={`page-button ${
+                            currentPage === item ? "active" : ""
+                          }`}
                           onClick={() => setCurrentPage(item)}
                         >
                           {item}
                         </button>
+                      ) : (
+                        <span
+                          key={`${item}-${index}`}
+                          className="pagination-ellipsis"
+                        >
+                          ...
+                        </span>
                       )
                     )}
 
@@ -921,12 +939,10 @@ export default function ProductsPage() {
         <div className="modal-overlay" onClick={handleCloseDeleteModal}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-icon">!</div>
-
             <h3 className="modal-title">Delete product?</h3>
-
             <p className="modal-text">
-              You are about to delete <strong>{productToDelete.name}</strong>. This
-              action cannot be undone.
+              You are about to delete <strong>{productToDelete.name}</strong>.
+              This action cannot be undone.
             </p>
 
             <div className="modal-actions">
@@ -945,7 +961,9 @@ export default function ProductsPage() {
                 onClick={handleConfirmDelete}
                 disabled={deletingProductId !== null}
               >
-                {deletingProductId === productToDelete.id ? "Deleting..." : "Delete Product"}
+                {deletingProductId === productToDelete.id
+                  ? "Deleting..."
+                  : "Delete Product"}
               </button>
             </div>
           </div>

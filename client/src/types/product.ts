@@ -61,3 +61,21 @@ export type PagedResponse<T> = {
 };
 
 export type ProductListResponse = PagedResponse<Product>;
+
+export type InventoryCategorySummary = {
+  name: string;
+  count: number;
+  availableUnits: number;
+};
+
+export type InventorySummary = {
+  totalMatchingProducts: number;
+  healthyProductsCount: number;
+  lowStockCount: number;
+  totalStockOnHand: number;
+  totalAvailableUnits: number;
+  averagePrice: number;
+  lowStockPercentage: number;
+  catalogHealthPercentage: number;
+  topCategories: InventoryCategorySummary[];
+};
