@@ -28,3 +28,5 @@ export type CreateProductRequest = {
   stockReserved: number;
   reorderThreshold: number;
 };
+
+export type UpdateProductRequest = CreateProductRequest;

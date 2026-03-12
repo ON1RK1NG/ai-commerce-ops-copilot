@@ -64,22 +64,13 @@ public class ProductsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ProductDto>> Create([FromBody] CreateProductRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Sku))
-            return BadRequest("SKU is required.");
-
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return BadRequest("Name is required.");
-
-        if (request.CategoryId <= 0)
-            return BadRequest("A valid category is required.");
+        var validationError = await ValidateRequestAsync(request);
+        if (validationError is not null)
+            return validationError;
 
         var normalizedSku = request.Sku.Trim();
         var normalizedName = request.Name.Trim();
         var normalizedDescription = request.Description?.Trim() ?? string.Empty;
-
-        var categoryExists = await _context.Categories.AnyAsync(x => x.Id == request.CategoryId);
-        if (!categoryExists)
-            return BadRequest("Invalid category.");
 
         var skuExists = await _context.Products.AnyAsync(x => x.Sku == normalizedSku);
         if (skuExists)
@@ -118,5 +109,113 @@ public class ProductsController : ControllerBase
             .FirstAsync();
 
         return CreatedAtAction(nameof(GetById), new { id = createdProduct.Id }, createdProduct);
+    }
+
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<ProductDto>> Update(int id, [FromBody] CreateProductRequest request)
+    {
+        var validationError = await ValidateRequestAsync(request);
+        if (validationError is not null)
+            return validationError;
+
+        var product = await _context.Products
+            .Include(x => x.InventoryItem)
+            .FirstOrDefaultAsync(x => x.Id == id);
+
+        if (product is null)
+            return NotFound();
+
+        var normalizedSku = request.Sku.Trim();
+        var normalizedName = request.Name.Trim();
+        var normalizedDescription = request.Description?.Trim() ?? string.Empty;
+
+        var skuExists = await _context.Products.AnyAsync(x => x.Id != id && x.Sku == normalizedSku);
+        if (skuExists)
+            return BadRequest("SKU already exists.");
+
+        product.Sku = normalizedSku;
+        product.Name = normalizedName;
+        product.Description = normalizedDescription;
+        product.Price = request.Price;
+        product.CategoryId = request.CategoryId;
+
+        if (product.InventoryItem is null)
+        {
+            product.InventoryItem = new InventoryItem
+            {
+                ProductId = product.Id
+            };
+
+            _context.InventoryItems.Add(product.InventoryItem);
+        }
+
+        product.InventoryItem.StockOnHand = request.StockOnHand;
+        product.InventoryItem.StockReserved = request.StockReserved;
+        product.InventoryItem.ReorderThreshold = request.ReorderThreshold;
+        product.InventoryItem.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        var updatedProduct = await _context.Products
+            .AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(ProductProjection)
+            .FirstAsync();
+
+        return Ok(updatedProduct);
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var product = await _context.Products
+            .Include(x => x.InventoryItem)
+            .FirstOrDefaultAsync(x => x.Id == id);
+
+        if (product is null)
+            return NotFound();
+
+        if (product.InventoryItem is not null)
+        {
+            _context.InventoryItems.Remove(product.InventoryItem);
+        }
+
+        _context.Products.Remove(product);
+        await _context.SaveChangesAsync();
+
+        return NoContent();
+    }
+
+    private async Task<ActionResult?> ValidateRequestAsync(CreateProductRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Sku))
+            return BadRequest("SKU is required.");
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return BadRequest("Name is required.");
+
+        if (request.CategoryId <= 0)
+            return BadRequest("A valid category is required.");
+
+        if (request.Price < 0)
+            return BadRequest("Price cannot be negative.");
+
+        if (request.StockOnHand < 0)
+            return BadRequest("Stock on hand cannot be negative.");
+
+        if (request.StockReserved < 0)
+            return BadRequest("Reserved stock cannot be negative.");
+
+        if (request.ReorderThreshold < 0)
+            return BadRequest("Reorder threshold cannot be negative.");
+
+        if (request.StockReserved > request.StockOnHand)
+            return BadRequest("Reserved stock cannot be greater than stock on hand.");
+
+        var categoryExists = await _context.Categories.AnyAsync(x => x.Id == request.CategoryId);
+        if (!categoryExists)
+            return BadRequest("Invalid category.");
+
+        return null;
     }
 }
