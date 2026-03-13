@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -337,7 +338,7 @@ export default function ProductsPage() {
     };
   }, [success, error]);
 
-  async function loadProducts() {
+  const loadProducts = useCallback(async () => {
     try {
       setLoadingProducts(true);
       setError("");
@@ -367,9 +368,16 @@ export default function ProductsPage() {
     } finally {
       setLoadingProducts(false);
     }
-  }
+  }, [
+    debouncedSearchTerm,
+    selectedCategoryId,
+    stockFilter,
+    sortBy,
+    currentPage,
+    pageSize,
+  ]);
 
-  async function loadSummary() {
+  const loadSummary = useCallback(async () => {
     try {
       setLoadingSummary(true);
 
@@ -385,7 +393,7 @@ export default function ProductsPage() {
     } finally {
       setLoadingSummary(false);
     }
-  }
+  }, [debouncedSearchTerm, selectedCategoryId, stockFilter]);
 
   async function loadCategories() {
     try {
@@ -405,18 +413,11 @@ export default function ProductsPage() {
 
   useEffect(() => {
     void loadProducts();
-  }, [
-    debouncedSearchTerm,
-    selectedCategoryId,
-    stockFilter,
-    sortBy,
-    currentPage,
-    pageSize,
-  ]);
+  }, [loadProducts]);
 
   useEffect(() => {
     void loadSummary();
-  }, [debouncedSearchTerm, selectedCategoryId, stockFilter]);
+  }, [loadSummary]);
 
   function resetForm() {
     setForm(initialForm);
