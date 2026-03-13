@@ -1,0 +1,49 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - 'API/**'
+      - 'Application/**'
+      - 'Domain/**'
+      - 'Infrastructure/**'
+      - 'AiCommerceOpsCopilot.Tests/**'
+      - 'AiCommerceOpsCopilot.sln'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'API/**'
+      - 'Application/**'
+      - 'Domain/**'
+      - 'Infrastructure/**'
+      - 'AiCommerceOpsCopilot.Tests/**'
+      - 'AiCommerceOpsCopilot.sln'
+      - '.github/workflows/backend-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore AiCommerceOpsCopilot.sln
+
+      - name: Build
+        run: dotnet build AiCommerceOpsCopilot.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test AiCommerceOpsCopilot.sln --configuration Release --no-build --verbosity normal
