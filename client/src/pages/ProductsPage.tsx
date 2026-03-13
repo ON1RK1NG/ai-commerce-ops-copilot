@@ -168,7 +168,11 @@ function normalizeSortOption(value: string | null): SortOption {
 function normalizePageSize(value: string | null) {
   const parsed = parsePositiveInteger(value, DEFAULT_PAGE_SIZE);
 
-  if (ALLOWED_PAGE_SIZES.includes(parsed as (typeof ALLOWED_PAGE_SIZES)[number])) {
+  if (
+    ALLOWED_PAGE_SIZES.includes(
+      parsed as (typeof ALLOWED_PAGE_SIZES)[number]
+    )
+  ) {
     return parsed;
   }
 
@@ -229,6 +233,10 @@ function syncDashboardStateToUrl(state: DashboardUrlState) {
   }
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export default function ProductsPage() {
   const initialUrlState = useMemo(() => readDashboardStateFromUrl(), []);
 
@@ -263,7 +271,6 @@ export default function ProductsPage() {
 
   const isEditMode = editingProductId !== null;
   const isDeleteModalOpen = productToDelete !== null;
-
   const isSearchDebouncing = searchTerm !== debouncedSearchTerm;
 
   const paginationItems = useMemo(() => {
@@ -315,6 +322,21 @@ export default function ProductsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!success && !error) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSuccess("");
+      setError("");
+    }, 3500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [success, error]);
+
   async function loadProducts() {
     try {
       setLoadingProducts(true);
@@ -341,7 +363,7 @@ export default function ProductsPage() {
       setServerData(response);
       setProducts(response.items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load products");
+      setError(getErrorMessage(err, "Failed to load products."));
     } finally {
       setLoadingProducts(false);
     }
@@ -359,7 +381,7 @@ export default function ProductsPage() {
 
       setSummary(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load summary");
+      setError(getErrorMessage(err, "Failed to load summary."));
     } finally {
       setLoadingSummary(false);
     }
@@ -371,7 +393,7 @@ export default function ProductsPage() {
       const data = await getCategories();
       setCategories(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load categories");
+      setError(getErrorMessage(err, "Failed to load categories."));
     } finally {
       setLoadingCategories(false);
     }
@@ -517,7 +539,7 @@ export default function ProductsPage() {
         await Promise.all([loadProducts(), loadSummary()]);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete product.");
+      setError(getErrorMessage(err, "Failed to delete product."));
     } finally {
       setDeletingProductId(null);
     }
@@ -569,16 +591,22 @@ export default function ProductsPage() {
       await Promise.all([loadProducts(), loadSummary()]);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : isEditMode
-          ? "Failed to update product."
-          : "Failed to create product."
+        getErrorMessage(
+          err,
+          isEditMode
+            ? "Failed to update product."
+            : "Failed to create product."
+        )
       );
     } finally {
       setSubmitting(false);
     }
   }
+
+  const lowStockProgressWidth = `${Math.min(
+    100,
+    Math.max(0, summary.lowStockPercentage)
+  )}%`;
 
   return (
     <>
@@ -592,6 +620,9 @@ export default function ProductsPage() {
             </p>
           </div>
         </div>
+
+        {success && <div className="message message-success">{success}</div>}
+        {error && <div className="message message-error">{error}</div>}
 
         <div className="stats-grid stats-grid-expanded">
           <div className="stat-card">
@@ -636,7 +667,7 @@ export default function ProductsPage() {
         </div>
 
         <div className="dashboard-summary-grid">
-          <section className="panel">
+          <section className="panel summary-panel">
             <div className="panel-header">
               <h2>Inventory Health</h2>
               <p>
@@ -646,7 +677,7 @@ export default function ProductsPage() {
               </p>
             </div>
 
-            <div className="health-grid">
+            <div className="health-list">
               <div className="health-item">
                 <div>
                   <span className="health-label">Healthy products</span>
@@ -654,7 +685,7 @@ export default function ProductsPage() {
                     {summary.healthyProductsCount}
                   </strong>
                 </div>
-                <div className="health-badge ok">Healthy</div>
+                <div className="health-badge healthy">Healthy</div>
               </div>
 
               <div className="health-item">
@@ -684,33 +715,44 @@ export default function ProductsPage() {
                     {summary.catalogHealthPercentage}%
                   </strong>
                 </div>
-                <div className="health-badge ok">Overall</div>
+                <div className="health-badge healthy">Overall</div>
+              </div>
+            </div>
+
+            <div className="progress-block">
+              <div className="progress-header">
+                <span>Low stock ratio</span>
+                <strong>{summary.lowStockPercentage}%</strong>
+              </div>
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{ width: lowStockProgressWidth }}
+                />
               </div>
             </div>
           </section>
 
-          <section className="panel">
+          <section className="panel summary-panel">
             <div className="panel-header">
               <h2>Category Overview</h2>
               <p>Top categories from the filtered catalog.</p>
             </div>
 
             {summary.topCategories.length === 0 ? (
-              <div className="empty-results">
-                <h3>No category data yet</h3>
+              <div className="empty-results compact-empty">
+                <h3>📦 No category data yet</h3>
                 <p>Create some products to see a category summary.</p>
               </div>
             ) : (
               <div className="category-overview-list">
                 {summary.topCategories.map((item) => (
                   <div className="category-overview-item" key={item.name}>
-                    <div>
+                    <div className="category-main">
                       <strong>{item.name}</strong>
-                    </div>
-                    <div>
                       <span>{item.count} products</span>
                     </div>
-                    <div>
+                    <div className="category-meta">
                       <span>{item.availableUnits} available units</span>
                     </div>
                   </div>
@@ -864,9 +906,6 @@ export default function ProductsPage() {
                 )}
               </div>
             </form>
-
-            {error && <div className="message message-error">{error}</div>}
-            {success && <div className="message message-success">{success}</div>}
           </section>
 
           <section className="panel">
@@ -926,7 +965,9 @@ export default function ProductsPage() {
                   <select
                     id="sortBy"
                     value={sortBy}
-                    onChange={(e) => handleSortChange(e.target.value as SortOption)}
+                    onChange={(e) =>
+                      handleSortChange(e.target.value as SortOption)
+                    }
                   >
                     <option value="newest">Newest first</option>
                     <option value="oldest">Oldest first</option>
@@ -934,8 +975,12 @@ export default function ProductsPage() {
                     <option value="name-desc">Name Z–A</option>
                     <option value="price-asc">Price low to high</option>
                     <option value="price-desc">Price high to low</option>
-                    <option value="available-asc">Lowest available stock</option>
-                    <option value="available-desc">Highest available stock</option>
+                    <option value="available-asc">
+                      Lowest available stock
+                    </option>
+                    <option value="available-desc">
+                      Highest available stock
+                    </option>
                   </select>
                 </div>
 
@@ -965,8 +1010,8 @@ export default function ProductsPage() {
 
               <div className="filters-summary">
                 <span>
-                  Showing <strong>{startItem}</strong>–<strong>{endItem}</strong> of{" "}
-                  <strong>{serverData.totalCount}</strong> matching products
+                  Showing <strong>{startItem}</strong>–<strong>{endItem}</strong>{" "}
+                  of <strong>{serverData.totalCount}</strong> matching products
                 </span>
 
                 <span>
@@ -981,13 +1026,15 @@ export default function ProductsPage() {
               </div>
             </div>
 
-            {loadingProducts || isSearchDebouncing ? (
+            {loadingProducts ? (
               <p className="state-text">
-                {isSearchDebouncing ? "Waiting for search..." : "Loading products..."}
+                {isSearchDebouncing
+                  ? "Waiting for search..."
+                  : "Loading products..."}
               </p>
             ) : serverData.totalCount === 0 ? (
               <div className="empty-results">
-                <h3>No matching products</h3>
+                <h3>🔎 No matching products</h3>
                 <p>Try changing your search, filters, or sorting.</p>
               </div>
             ) : (
@@ -1049,7 +1096,9 @@ export default function ProductsPage() {
                                   type="button"
                                   className="table-button edit-button"
                                   onClick={() => handleEditClick(product)}
-                                  disabled={submitting || deletingProductId !== null}
+                                  disabled={
+                                    submitting || deletingProductId !== null
+                                  }
                                 >
                                   Edit
                                 </button>
@@ -1058,7 +1107,9 @@ export default function ProductsPage() {
                                   type="button"
                                   className="table-button delete-button"
                                   onClick={() => handleDeleteClick(product)}
-                                  disabled={submitting || deletingProductId !== null}
+                                  disabled={
+                                    submitting || deletingProductId !== null
+                                  }
                                 >
                                   {isDeleting ? "Deleting..." : "Delete"}
                                 </button>
@@ -1081,7 +1132,9 @@ export default function ProductsPage() {
                     <button
                       type="button"
                       className="page-button"
-                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                      onClick={() =>
+                        setCurrentPage((page) => Math.max(1, page - 1))
+                      }
                       disabled={currentPage === 1}
                     >
                       Previous
@@ -1100,10 +1153,7 @@ export default function ProductsPage() {
                           {item}
                         </button>
                       ) : (
-                        <span
-                          key={`${item}-${index}`}
-                          className="pagination-ellipsis"
-                        >
+                        <span key={`${item}-${index}`} className="page-ellipsis">
                           ...
                         </span>
                       )
@@ -1114,10 +1164,15 @@ export default function ProductsPage() {
                       className="page-button"
                       onClick={() =>
                         setCurrentPage((page) =>
-                          Math.min(Math.max(serverData.totalPages, 1), page + 1)
+                          Math.min(
+                            Math.max(serverData.totalPages, 1),
+                            page + 1
+                          )
                         )
                       }
-                      disabled={currentPage === Math.max(serverData.totalPages, 1)}
+                      disabled={
+                        currentPage === Math.max(serverData.totalPages, 1)
+                      }
                     >
                       Next
                     </button>
