@@ -13,7 +13,7 @@ public class ProductsControllerTests
     [Fact]
     public async Task GetAll_AppliesFiltersSortingAndPagination()
     {
-        var controller = CreateController();
+        var (controller, _) = CreateControllerWithContext();
 
         var query = new ProductQueryParametersDto
         {
@@ -43,7 +43,7 @@ public class ProductsControllerTests
     [Fact]
     public async Task GetSummary_ReturnsCorrectCatalogMetrics()
     {
-        var controller = CreateController();
+        var (controller, _) = CreateControllerWithContext();
 
         var actionResult = await controller.GetSummary(new ProductQueryParametersDto());
 
@@ -70,7 +70,7 @@ public class ProductsControllerTests
     [Fact]
     public async Task GetSummary_AppliesSearchAndHealthyFilter()
     {
-        var controller = CreateController();
+        var (controller, _) = CreateControllerWithContext();
 
         var query = new ProductQueryParametersDto
         {
@@ -98,7 +98,7 @@ public class ProductsControllerTests
     [Fact]
     public async Task Create_ReturnsBadRequest_WhenReservedStockExceedsStockOnHand()
     {
-        var controller = CreateController();
+        var (controller, _) = CreateControllerWithContext();
 
         var request = new CreateProductRequest
         {
@@ -118,7 +118,133 @@ public class ProductsControllerTests
         Assert.Equal("Reserved stock cannot be greater than stock on hand.", badRequest.Value);
     }
 
-    private static ProductsController CreateController()
+    [Fact]
+    public async Task Create_CreatesProductAndInventoryItem()
+    {
+        var (controller, context) = CreateControllerWithContext();
+
+        var request = new CreateProductRequest
+        {
+            Sku = "WEBCAM-001",
+            Name = "HD Webcam",
+            Description = "1080p webcam for meetings",
+            Price = 55m,
+            CategoryId = 1,
+            StockOnHand = 25,
+            StockReserved = 4,
+            ReorderThreshold = 6
+        };
+
+        var actionResult = await controller.Create(request);
+
+        var createdAt = Assert.IsType<CreatedAtActionResult>(actionResult.Result);
+        var createdProduct = Assert.IsType<ProductDto>(createdAt.Value);
+
+        Assert.Equal(nameof(ProductsController.GetById), createdAt.ActionName);
+        Assert.Equal("WEBCAM-001", createdProduct.Sku);
+        Assert.Equal("HD Webcam", createdProduct.Name);
+        Assert.Equal(55m, createdProduct.Price);
+        Assert.Equal(25, createdProduct.StockOnHand);
+        Assert.Equal(4, createdProduct.StockReserved);
+        Assert.Equal(6, createdProduct.ReorderThreshold);
+
+        context.ChangeTracker.Clear();
+
+        var productInDb = await context.Products
+            .Include(x => x.InventoryItem)
+            .SingleAsync(x => x.Sku == "WEBCAM-001");
+
+        Assert.Equal("HD Webcam", productInDb.Name);
+        Assert.Equal(55m, productInDb.Price);
+        Assert.NotNull(productInDb.InventoryItem);
+        Assert.Equal(25, productInDb.InventoryItem!.StockOnHand);
+        Assert.Equal(4, productInDb.InventoryItem.StockReserved);
+        Assert.Equal(6, productInDb.InventoryItem.ReorderThreshold);
+
+        Assert.Equal(5, await context.Products.CountAsync());
+        Assert.Equal(5, await context.InventoryItems.CountAsync());
+    }
+
+    [Fact]
+    public async Task Update_UpdatesExistingProductAndInventory()
+    {
+        var (controller, context) = CreateControllerWithContext();
+
+        var request = new CreateProductRequest
+        {
+            Sku = "MOUSE-001-UPDATED",
+            Name = "Wireless Mouse Pro",
+            Description = "Updated mouse description",
+            Price = 35m,
+            CategoryId = 2,
+            StockOnHand = 120,
+            StockReserved = 15,
+            ReorderThreshold = 25
+        };
+
+        var actionResult = await controller.Update(1, request);
+
+        var okResult = Assert.IsType<OkObjectResult>(actionResult.Result);
+        var updatedProduct = Assert.IsType<ProductDto>(okResult.Value);
+
+        Assert.Equal(1, updatedProduct.Id);
+        Assert.Equal("MOUSE-001-UPDATED", updatedProduct.Sku);
+        Assert.Equal("Wireless Mouse Pro", updatedProduct.Name);
+        Assert.Equal("Updated mouse description", updatedProduct.Description);
+        Assert.Equal(35m, updatedProduct.Price);
+        Assert.Equal(2, updatedProduct.CategoryId);
+        Assert.Equal(120, updatedProduct.StockOnHand);
+        Assert.Equal(15, updatedProduct.StockReserved);
+        Assert.Equal(25, updatedProduct.ReorderThreshold);
+
+        context.ChangeTracker.Clear();
+
+        var productInDb = await context.Products
+            .Include(x => x.InventoryItem)
+            .SingleAsync(x => x.Id == 1);
+
+        Assert.Equal("MOUSE-001-UPDATED", productInDb.Sku);
+        Assert.Equal("Wireless Mouse Pro", productInDb.Name);
+        Assert.Equal("Updated mouse description", productInDb.Description);
+        Assert.Equal(35m, productInDb.Price);
+        Assert.Equal(2, productInDb.CategoryId);
+        Assert.NotNull(productInDb.InventoryItem);
+        Assert.Equal(120, productInDb.InventoryItem!.StockOnHand);
+        Assert.Equal(15, productInDb.InventoryItem.StockReserved);
+        Assert.Equal(25, productInDb.InventoryItem.ReorderThreshold);
+    }
+
+    [Fact]
+    public async Task Delete_RemovesProductAndInventoryItem()
+    {
+        var (controller, context) = CreateControllerWithContext();
+
+        var actionResult = await controller.Delete(4);
+
+        Assert.IsType<NoContentResult>(actionResult);
+
+        context.ChangeTracker.Clear();
+
+        var productExists = await context.Products.AnyAsync(x => x.Id == 4);
+        var inventoryExists = await context.InventoryItems.AnyAsync(x => x.ProductId == 4);
+
+        Assert.False(productExists);
+        Assert.False(inventoryExists);
+        Assert.Equal(3, await context.Products.CountAsync());
+        Assert.Equal(3, await context.InventoryItems.CountAsync());
+    }
+
+    [Fact]
+    public async Task GetById_ReturnsNotFound_WhenProductDoesNotExist()
+    {
+        var (controller, _) = CreateControllerWithContext();
+
+        var actionResult = await controller.GetById(999);
+
+        Assert.IsType<NotFoundResult>(actionResult.Result);
+    }
+
+    private static (ProductsController Controller, AppDbContext Context) CreateControllerWithContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -131,7 +257,7 @@ public class ProductsControllerTests
 
         SeedCatalog(context);
 
-        return new ProductsController(context);
+        return (new ProductsController(context), context);
     }
 
     private static void SeedCatalog(AppDbContext context)
