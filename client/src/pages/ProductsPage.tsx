@@ -13,6 +13,7 @@ import {
   getProductSummary,
   updateProduct,
 } from "../api/productsApi";
+import { useDebounce } from "../hooks/useDebounce";
 import type {
   Category,
   CreateProductRequest,
@@ -24,6 +25,30 @@ import type {
   UpdateProductRequest,
 } from "../types/product";
 import "../styles/ProductsPage.css";
+
+const DEFAULT_PAGE_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 400;
+const ALLOWED_PAGE_SIZES = [5, 10, 20] as const;
+const VALID_STOCK_FILTERS: StockFilter[] = ["all", "healthy", "low"];
+const VALID_SORT_OPTIONS: SortOption[] = [
+  "newest",
+  "oldest",
+  "name-asc",
+  "name-desc",
+  "price-asc",
+  "price-desc",
+  "available-asc",
+  "available-desc",
+];
+
+type DashboardUrlState = {
+  searchTerm: string;
+  selectedCategoryId: number;
+  stockFilter: StockFilter;
+  sortBy: SortOption;
+  currentPage: number;
+  pageSize: number;
+};
 
 const initialForm: CreateProductRequest = {
   sku: "",
@@ -40,7 +65,7 @@ const initialServerData: ProductListResponse = {
   items: [],
   totalCount: 0,
   page: 1,
-  pageSize: 10,
+  pageSize: DEFAULT_PAGE_SIZE,
   totalPages: 1,
 };
 
@@ -110,7 +135,103 @@ function buildPaginationItems(currentPage: number, totalPages: number) {
   return items;
 }
 
+function parsePositiveInteger(value: string | null, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function normalizeStockFilter(value: string | null): StockFilter {
+  if (value && VALID_STOCK_FILTERS.includes(value as StockFilter)) {
+    return value as StockFilter;
+  }
+
+  return "all";
+}
+
+function normalizeSortOption(value: string | null): SortOption {
+  if (value && VALID_SORT_OPTIONS.includes(value as SortOption)) {
+    return value as SortOption;
+  }
+
+  return "newest";
+}
+
+function normalizePageSize(value: string | null) {
+  const parsed = parsePositiveInteger(value, DEFAULT_PAGE_SIZE);
+
+  if (ALLOWED_PAGE_SIZES.includes(parsed as (typeof ALLOWED_PAGE_SIZES)[number])) {
+    return parsed;
+  }
+
+  return DEFAULT_PAGE_SIZE;
+}
+
+function readDashboardStateFromUrl(): DashboardUrlState {
+  const params = new URLSearchParams(window.location.search);
+
+  return {
+    searchTerm: params.get("search") ?? "",
+    selectedCategoryId: parsePositiveInteger(params.get("categoryId"), 0),
+    stockFilter: normalizeStockFilter(params.get("stockStatus")),
+    sortBy: normalizeSortOption(params.get("sortBy")),
+    currentPage: parsePositiveInteger(params.get("page"), 1),
+    pageSize: normalizePageSize(params.get("pageSize")),
+  };
+}
+
+function syncDashboardStateToUrl(state: DashboardUrlState) {
+  const params = new URLSearchParams();
+
+  const trimmedSearch = state.searchTerm.trim();
+
+  if (trimmedSearch) {
+    params.set("search", trimmedSearch);
+  }
+
+  if (state.selectedCategoryId > 0) {
+    params.set("categoryId", String(state.selectedCategoryId));
+  }
+
+  if (state.stockFilter !== "all") {
+    params.set("stockStatus", state.stockFilter);
+  }
+
+  if (state.sortBy !== "newest") {
+    params.set("sortBy", state.sortBy);
+  }
+
+  if (state.currentPage > 1) {
+    params.set("page", String(state.currentPage));
+  }
+
+  if (state.pageSize !== DEFAULT_PAGE_SIZE) {
+    params.set("pageSize", String(state.pageSize));
+  }
+
+  const nextSearch = params.toString();
+  const nextUrl = nextSearch
+    ? `${window.location.pathname}?${nextSearch}`
+    : window.location.pathname;
+
+  const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+  if (nextUrl !== currentUrl) {
+    window.history.replaceState(null, "", nextUrl);
+  }
+}
+
 export default function ProductsPage() {
+  const initialUrlState = useMemo(() => readDashboardStateFromUrl(), []);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState<CreateProductRequest>(initialForm);
@@ -125,18 +246,25 @@ export default function ProductsPage() {
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState(0);
-  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
-  const [sortBy, setSortBy] = useState<SortOption>("newest");
-  const [pageSize, setPageSize] = useState(10);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState(initialUrlState.searchTerm);
+  const debouncedSearchTerm = useDebounce(searchTerm, SEARCH_DEBOUNCE_MS);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(
+    initialUrlState.selectedCategoryId
+  );
+  const [stockFilter, setStockFilter] = useState<StockFilter>(
+    initialUrlState.stockFilter
+  );
+  const [sortBy, setSortBy] = useState<SortOption>(initialUrlState.sortBy);
+  const [pageSize, setPageSize] = useState(initialUrlState.pageSize);
+  const [currentPage, setCurrentPage] = useState(initialUrlState.currentPage);
   const [serverData, setServerData] =
     useState<ProductListResponse>(initialServerData);
   const [summary, setSummary] = useState<InventorySummary>(initialSummary);
 
   const isEditMode = editingProductId !== null;
   const isDeleteModalOpen = productToDelete !== null;
+
+  const isSearchDebouncing = searchTerm !== debouncedSearchTerm;
 
   const paginationItems = useMemo(() => {
     return buildPaginationItems(currentPage, Math.max(serverData.totalPages, 1));
@@ -150,19 +278,65 @@ export default function ProductsPage() {
       ? 0
       : Math.min(currentPage * pageSize, serverData.totalCount);
 
+  useEffect(() => {
+    syncDashboardStateToUrl({
+      searchTerm,
+      selectedCategoryId,
+      stockFilter,
+      sortBy,
+      currentPage,
+      pageSize,
+    });
+  }, [
+    searchTerm,
+    selectedCategoryId,
+    stockFilter,
+    sortBy,
+    currentPage,
+    pageSize,
+  ]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const state = readDashboardStateFromUrl();
+
+      setSearchTerm(state.searchTerm);
+      setSelectedCategoryId(state.selectedCategoryId);
+      setStockFilter(state.stockFilter);
+      setSortBy(state.sortBy);
+      setCurrentPage(state.currentPage);
+      setPageSize(state.pageSize);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
   async function loadProducts() {
     try {
       setLoadingProducts(true);
       setError("");
 
       const response = await getProducts({
-        search: searchTerm,
+        search: debouncedSearchTerm,
         categoryId: selectedCategoryId > 0 ? selectedCategoryId : undefined,
         stockStatus: stockFilter === "all" ? undefined : stockFilter,
         sortBy,
         page: currentPage,
         pageSize,
       });
+
+      if (
+        response.totalCount > 0 &&
+        response.totalPages > 0 &&
+        currentPage > response.totalPages
+      ) {
+        setCurrentPage(response.totalPages);
+        return;
+      }
 
       setServerData(response);
       setProducts(response.items);
@@ -178,7 +352,7 @@ export default function ProductsPage() {
       setLoadingSummary(true);
 
       const response = await getProductSummary({
-        search: searchTerm,
+        search: debouncedSearchTerm,
         categoryId: selectedCategoryId > 0 ? selectedCategoryId : undefined,
         stockStatus: stockFilter === "all" ? undefined : stockFilter,
       });
@@ -209,8 +383,18 @@ export default function ProductsPage() {
 
   useEffect(() => {
     void loadProducts();
+  }, [
+    debouncedSearchTerm,
+    selectedCategoryId,
+    stockFilter,
+    sortBy,
+    currentPage,
+    pageSize,
+  ]);
+
+  useEffect(() => {
     void loadSummary();
-  }, [searchTerm, selectedCategoryId, stockFilter, sortBy, currentPage, pageSize]);
+  }, [debouncedSearchTerm, selectedCategoryId, stockFilter]);
 
   function resetForm() {
     setForm(initialForm);
@@ -222,7 +406,7 @@ export default function ProductsPage() {
     setSelectedCategoryId(0);
     setStockFilter("all");
     setSortBy("newest");
-    setPageSize(10);
+    setPageSize(DEFAULT_PAGE_SIZE);
     setCurrentPage(1);
   }
 
@@ -456,7 +640,7 @@ export default function ProductsPage() {
             <div className="panel-header">
               <h2>Inventory Health</h2>
               <p>
-                {loadingSummary
+                {loadingSummary || isSearchDebouncing
                   ? "Refreshing catalog summary..."
                   : "Quick overview of the filtered catalog."}
               </p>
@@ -607,7 +791,9 @@ export default function ProductsPage() {
                     disabled={loadingCategories}
                   >
                     <option value={0}>
-                      {loadingCategories ? "Loading categories..." : "Select category"}
+                      {loadingCategories
+                        ? "Loading categories..."
+                        : "Select category"}
                     </option>
                     {categories.map((category) => (
                       <option key={category.id} value={category.id}>
@@ -784,13 +970,21 @@ export default function ProductsPage() {
                 </span>
 
                 <span>
-                  Sorted by <strong>{getSortLabel(sortBy)}</strong>
+                  {isSearchDebouncing ? (
+                    <>Waiting for search...</>
+                  ) : (
+                    <>
+                      Sorted by <strong>{getSortLabel(sortBy)}</strong>
+                    </>
+                  )}
                 </span>
               </div>
             </div>
 
-            {loadingProducts ? (
-              <p className="state-text">Loading products...</p>
+            {loadingProducts || isSearchDebouncing ? (
+              <p className="state-text">
+                {isSearchDebouncing ? "Waiting for search..." : "Loading products..."}
+              </p>
             ) : serverData.totalCount === 0 ? (
               <div className="empty-results">
                 <h3>No matching products</h3>
