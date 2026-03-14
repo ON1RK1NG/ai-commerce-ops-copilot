@@ -12,7 +12,10 @@ public class InventoryDetailDto
     public int ReorderThreshold { get; set; }
     public bool IsLowStock { get; set; }
     public bool IsOutOfStock { get; set; }
+    public int RecentUnitsSold { get; set; }
     public int RecommendedRestockUnits { get; set; }
+    public string RecommendationSeverity { get; set; } = "healthy";
+    public string RecommendationMessage { get; set; } = "Healthy";
     public DateTime UpdatedAtUtc { get; set; }
     public List<InventoryMovementDto> RecentMovements { get; set; } = new();
 }

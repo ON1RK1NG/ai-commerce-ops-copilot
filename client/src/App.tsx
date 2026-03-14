@@ -8,19 +8,7 @@ type View = "products" | "inventory" | "orders";
 
 function AppLogo() {
   return (
-    <div
-      style={{
-        width: 52,
-        height: 52,
-        borderRadius: 16,
-        background:
-          "linear-gradient(135deg, #2563eb 0%, #1d4ed8 55%, #0f172a 100%)",
-        display: "grid",
-        placeItems: "center",
-        boxShadow: "0 14px 32px rgba(37, 99, 235, 0.22)",
-        flexShrink: 0,
-      }}
-    >
+    <div className="app-logo">
       <svg
         width="28"
         height="28"
@@ -65,18 +53,7 @@ function NavButton({
     <button
       type="button"
       onClick={onClick}
-      style={{
-        border: "none",
-        borderRadius: 999,
-        padding: "0.78rem 1.2rem",
-        cursor: "pointer",
-        fontWeight: 700,
-        fontSize: "0.95rem",
-        background: active ? "#2563eb" : "#e2e8f0",
-        color: active ? "#ffffff" : "#0f172a",
-        boxShadow: active ? "0 10px 24px rgba(37, 99, 235, 0.18)" : "none",
-        transition: "all 0.18s ease",
-      }}
+      className={`app-nav-button ${active ? "active" : ""}`}
     >
       {label}
     </button>
@@ -87,73 +64,15 @@ export default function App() {
   const [view, setView] = useState<View>("products");
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background:
-          "radial-gradient(circle at top, #f8fbff 0%, #f1f5f9 42%, #eef2f7 100%)",
-      }}
-    >
-      <header
-        style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 1000,
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          background: "rgba(248, 251, 255, 0.82)",
-          borderBottom: "1px solid rgba(148, 163, 184, 0.14)",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 1400,
-            margin: "0 auto",
-            padding: "1rem",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "1rem",
-            flexWrap: "wrap",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.9rem",
-              minWidth: 0,
-            }}
-          >
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="app-header-inner">
+          <div className="app-brand">
             <AppLogo />
-
-            <div>
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: "2rem",
-                  lineHeight: 1,
-                  fontWeight: 900,
-                  letterSpacing: "-0.04em",
-                  background:
-                    "linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                }}
-              >
-                Commerce Ops
-              </h1>
-            </div>
+            <h1 className="app-title">Commerce Ops</h1>
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: "0.75rem",
-              flexWrap: "wrap",
-              justifyContent: "flex-end",
-            }}
-          >
+          <div className="app-nav">
             <NavButton
               label="Products"
               active={view === "products"}
@@ -173,13 +92,7 @@ export default function App() {
         </div>
       </header>
 
-      <main
-        style={{
-          maxWidth: 1400,
-          margin: "0 auto",
-          padding: "1rem",
-        }}
-      >
+      <main className="app-main">
         {view === "products" && <ProductsPage />}
         {view === "inventory" && <InventoryPage />}
         {view === "orders" && <OrdersPage />}

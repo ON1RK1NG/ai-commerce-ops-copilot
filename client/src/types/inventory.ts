@@ -26,7 +26,10 @@ export type InventoryListItem = {
   reorderThreshold: number;
   isLowStock: boolean;
   isOutOfStock: boolean;
+  recentUnitsSold: number;
   recommendedRestockUnits: number;
+  recommendationSeverity: string;
+  recommendationMessage: string;
   updatedAtUtc: string;
 };
 
@@ -55,7 +58,10 @@ export type InventoryDetail = {
   reorderThreshold: number;
   isLowStock: boolean;
   isOutOfStock: boolean;
+  recentUnitsSold: number;
   recommendedRestockUnits: number;
+  recommendationSeverity: string;
+  recommendationMessage: string;
   updatedAtUtc: string;
   recentMovements: InventoryMovement[];
 };

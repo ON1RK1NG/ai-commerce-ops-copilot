@@ -31,23 +31,97 @@ public class InventoryController : ControllerBase
         var page = query.Page < 1 ? 1 : query.Page;
         var pageSize = query.PageSize <= 0 ? 10 : Math.Min(query.PageSize, 100);
 
-        var inventoryQuery = BuildInventoryQuery(query);
+        var recentSalesFrom = DateTime.UtcNow.AddDays(-14);
 
-        var totalCount = await inventoryQuery.CountAsync();
-        var lowStockCount = await inventoryQuery.CountAsync(x => x.IsLowStock);
-        var outOfStockCount = await inventoryQuery.CountAsync(x => x.IsOutOfStock);
-        var totalAvailableUnits = await inventoryQuery.SumAsync(x => x.StockAvailable);
+        var baseRows = await _context.Products
+            .AsNoTracking()
+            .Select(x => new
+            {
+                ProductId = x.Id,
+                Sku = x.Sku ?? string.Empty,
+                ProductName = x.Name ?? string.Empty,
+                CategoryName = x.Category != null ? x.Category.Name ?? string.Empty : string.Empty,
+                StockOnHand = x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0,
+                StockReserved = x.InventoryItem != null ? x.InventoryItem.StockReserved : 0,
+                ReorderThreshold = x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0,
+                UpdatedAtUtc = x.InventoryItem != null ? x.InventoryItem.UpdatedAtUtc : x.CreatedAtUtc,
+                RecentUnitsSold = x.OrderItems
+                    .Where(oi => oi.Order.CreatedAtUtc >= recentSalesFrom)
+                    .Sum(oi => (int?)oi.Quantity) ?? 0
+            })
+            .ToListAsync();
 
-        inventoryQuery = ApplySorting(inventoryQuery, query.SortBy);
+        var items = baseRows
+            .Select(x =>
+            {
+                var stockAvailable = x.StockOnHand - x.StockReserved;
+                var isOutOfStock = stockAvailable <= 0;
+                var isLowStock = stockAvailable <= x.ReorderThreshold;
 
-        var items = await inventoryQuery
+                var recommendation = BuildRecommendation(
+                    stockAvailable,
+                    x.ReorderThreshold,
+                    x.RecentUnitsSold
+                );
+
+                return new InventoryListItemDto
+                {
+                    ProductId = x.ProductId,
+                    Sku = x.Sku,
+                    ProductName = x.ProductName,
+                    CategoryName = x.CategoryName,
+                    StockOnHand = x.StockOnHand,
+                    StockReserved = x.StockReserved,
+                    StockAvailable = stockAvailable,
+                    ReorderThreshold = x.ReorderThreshold,
+                    IsLowStock = isLowStock,
+                    IsOutOfStock = isOutOfStock,
+                    RecentUnitsSold = x.RecentUnitsSold,
+                    RecommendedRestockUnits = recommendation.Units,
+                    RecommendationSeverity = recommendation.Severity,
+                    RecommendationMessage = recommendation.Message,
+                    UpdatedAtUtc = x.UpdatedAtUtc
+                };
+            })
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim().ToLower();
+            items = items.Where(x =>
+                x.Sku.ToLower().Contains(search) ||
+                x.ProductName.ToLower().Contains(search) ||
+                x.CategoryName.ToLower().Contains(search));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.StockStatus))
+        {
+            var stockStatus = query.StockStatus.Trim().ToLower();
+
+            items = stockStatus switch
+            {
+                "low" => items.Where(x => x.IsLowStock && !x.IsOutOfStock),
+                "out" => items.Where(x => x.IsOutOfStock),
+                "healthy" => items.Where(x => !x.IsLowStock),
+                _ => items
+            };
+        }
+
+        items = ApplySorting(items, query.SortBy);
+
+        var totalCount = items.Count();
+        var lowStockCount = items.Count(x => x.IsLowStock);
+        var outOfStockCount = items.Count(x => x.IsOutOfStock);
+        var totalAvailableUnits = items.Sum(x => x.StockAvailable);
+
+        var pagedItems = items
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToList();
 
         var response = new InventoryListResponseDto
         {
-            Items = items,
+            Items = pagedItems,
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize,
@@ -64,10 +138,14 @@ public class InventoryController : ControllerBase
     [HttpGet("{productId:int}")]
     public async Task<ActionResult<InventoryDetailDto>> GetInventoryByProductId(int productId)
     {
+        var recentSalesFrom = DateTime.UtcNow.AddDays(-14);
+
         var product = await _context.Products
             .AsNoTracking()
             .Include(x => x.Category)
             .Include(x => x.InventoryItem)
+            .Include(x => x.OrderItems)
+                .ThenInclude(x => x.Order)
             .FirstOrDefaultAsync(x => x.Id == productId);
 
         if (product is null)
@@ -81,6 +159,15 @@ public class InventoryController : ControllerBase
         var stockAvailable = stockOnHand - stockReserved;
         var isLowStock = stockAvailable <= reorderThreshold;
         var isOutOfStock = stockAvailable <= 0;
+        var recentUnitsSold = product.OrderItems
+            .Where(oi => oi.Order.CreatedAtUtc >= recentSalesFrom)
+            .Sum(oi => oi.Quantity);
+
+        var recommendation = BuildRecommendation(
+            stockAvailable,
+            reorderThreshold,
+            recentUnitsSold
+        );
 
         var recentMovements = await BuildMovementQuery(productId)
             .OrderByDescending(x => x.CreatedAtUtc)
@@ -99,7 +186,10 @@ public class InventoryController : ControllerBase
             ReorderThreshold = reorderThreshold,
             IsLowStock = isLowStock,
             IsOutOfStock = isOutOfStock,
-            RecommendedRestockUnits = CalculateRecommendedRestockUnits(stockAvailable, reorderThreshold),
+            RecentUnitsSold = recentUnitsSold,
+            RecommendedRestockUnits = recommendation.Units,
+            RecommendationSeverity = recommendation.Severity,
+            RecommendationMessage = recommendation.Message,
             UpdatedAtUtc = product.InventoryItem?.UpdatedAtUtc ?? product.CreatedAtUtc,
             RecentMovements = recentMovements
         };
@@ -145,6 +235,8 @@ public class InventoryController : ControllerBase
         var product = await _context.Products
             .Include(x => x.Category)
             .Include(x => x.InventoryItem)
+            .Include(x => x.OrderItems)
+                .ThenInclude(x => x.Order)
             .FirstOrDefaultAsync(x => x.Id == request.ProductId);
 
         if (product is null)
@@ -221,6 +313,16 @@ public class InventoryController : ControllerBase
         await _context.SaveChangesAsync();
 
         var stockAvailable = inventoryItem.StockOnHand - inventoryItem.StockReserved;
+        var recentUnitsSold = product.OrderItems
+            .Where(oi => oi.Order.CreatedAtUtc >= DateTime.UtcNow.AddDays(-14))
+            .Sum(oi => oi.Quantity);
+
+        var recommendation = BuildRecommendation(
+            stockAvailable,
+            inventoryItem.ReorderThreshold,
+            recentUnitsSold
+        );
+
         var detail = new InventoryDetailDto
         {
             ProductId = product.Id,
@@ -233,7 +335,10 @@ public class InventoryController : ControllerBase
             ReorderThreshold = inventoryItem.ReorderThreshold,
             IsLowStock = stockAvailable <= inventoryItem.ReorderThreshold,
             IsOutOfStock = stockAvailable <= 0,
-            RecommendedRestockUnits = CalculateRecommendedRestockUnits(stockAvailable, inventoryItem.ReorderThreshold),
+            RecentUnitsSold = recentUnitsSold,
+            RecommendedRestockUnits = recommendation.Units,
+            RecommendationSeverity = recommendation.Severity,
+            RecommendationMessage = recommendation.Message,
             UpdatedAtUtc = inventoryItem.UpdatedAtUtc,
             RecentMovements = await BuildMovementQuery(product.Id)
                 .OrderByDescending(x => x.CreatedAtUtc)
@@ -244,54 +349,7 @@ public class InventoryController : ControllerBase
         return Ok(detail);
     }
 
-    private IQueryable<InventoryListItemDto> BuildInventoryQuery(InventoryQueryParametersDto query)
-    {
-        var inventoryQuery = _context.Products
-            .AsNoTracking()
-            .Select(x => new InventoryListItemDto
-            {
-                ProductId = x.Id,
-                Sku = x.Sku ?? string.Empty,
-                ProductName = x.Name ?? string.Empty,
-                CategoryName = x.Category != null ? x.Category.Name ?? string.Empty : string.Empty,
-                StockOnHand = x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0,
-                StockReserved = x.InventoryItem != null ? x.InventoryItem.StockReserved : 0,
-                StockAvailable = (x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) - (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0),
-                ReorderThreshold = x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0,
-                IsLowStock = ((x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) - (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)) <= (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0),
-                IsOutOfStock = ((x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) - (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)) <= 0,
-                RecommendedRestockUnits = ((x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) - (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)) <= (x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0)
-                    ? Math.Max(((x.InventoryItem != null ? x.InventoryItem.ReorderThreshold : 0) * 2) - ((x.InventoryItem != null ? x.InventoryItem.StockOnHand : 0) - (x.InventoryItem != null ? x.InventoryItem.StockReserved : 0)), 1)
-                    : 0,
-                UpdatedAtUtc = x.InventoryItem != null ? x.InventoryItem.UpdatedAtUtc : x.CreatedAtUtc
-            });
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
-        {
-            var search = query.Search.Trim().ToLower();
-            inventoryQuery = inventoryQuery.Where(x =>
-                x.Sku.ToLower().Contains(search) ||
-                x.ProductName.ToLower().Contains(search) ||
-                x.CategoryName.ToLower().Contains(search));
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.StockStatus))
-        {
-            var stockStatus = query.StockStatus.Trim().ToLower();
-
-            inventoryQuery = stockStatus switch
-            {
-                "low" => inventoryQuery.Where(x => x.IsLowStock && !x.IsOutOfStock),
-                "out" => inventoryQuery.Where(x => x.IsOutOfStock),
-                "healthy" => inventoryQuery.Where(x => !x.IsLowStock),
-                _ => inventoryQuery
-            };
-        }
-
-        return inventoryQuery;
-    }
-
-    private IQueryable<InventoryListItemDto> ApplySorting(IQueryable<InventoryListItemDto> query, string? sortBy)
+    private static IQueryable<InventoryListItemDto> ApplySorting(IQueryable<InventoryListItemDto> query, string? sortBy)
     {
         var normalizedSort = sortBy?.Trim().ToLowerInvariant();
 
@@ -334,13 +392,45 @@ public class InventoryController : ControllerBase
         return movementQuery;
     }
 
-    private static int CalculateRecommendedRestockUnits(int available, int threshold)
+    private static (int Units, string Severity, string Message) BuildRecommendation(
+        int stockAvailable,
+        int reorderThreshold,
+        int recentUnitsSold)
     {
-        if (available > threshold)
+        var weeklyDemandEstimate = Math.Max((int)Math.Ceiling(recentUnitsSold / 2.0), 0);
+        var safetyBuffer = Math.Max((int)Math.Ceiling(weeklyDemandEstimate * 0.2), 2);
+        var targetStock = Math.Max(reorderThreshold + weeklyDemandEstimate + safetyBuffer, reorderThreshold + 5);
+        var recommendedUnits = Math.Max(targetStock - stockAvailable, 0);
+
+        if (stockAvailable <= 0)
         {
-            return 0;
+            return (
+                Math.Max(recommendedUnits, reorderThreshold + safetyBuffer),
+                "critical",
+                $"Critical: restock {Math.Max(recommendedUnits, reorderThreshold + safetyBuffer)} units"
+            );
         }
 
-        return Math.Max((threshold * 2) - available, 1);
+        if (stockAvailable <= reorderThreshold)
+        {
+            return (
+                Math.Max(recommendedUnits, 1),
+                "high",
+                $"Restock now: {Math.Max(recommendedUnits, 1)} units"
+            );
+        }
+
+        if (stockAvailable <= reorderThreshold + Math.Max(weeklyDemandEstimate / 2, 3))
+        {
+            return (
+                Math.Max(recommendedUnits, 0),
+                "medium",
+                recommendedUnits > 0
+                    ? $"Restock soon: {recommendedUnits} units"
+                    : "Restock soon"
+            );
+        }
+
+        return (0, "healthy", "Healthy");
     }
 }
