@@ -13,6 +13,9 @@ public class AppDbContext : DbContext
     public DbSet<Product> Products => Set<Product>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
     public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<SystemEvent> SystemEvents => Set<SystemEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -68,6 +71,11 @@ public class AppDbContext : DbContext
                 .WithOne(x => x.Product)
                 .HasForeignKey(x => x.ProductId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasMany(x => x.OrderItems)
+                .WithOne(x => x.Product)
+                .HasForeignKey(x => x.ProductId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<InventoryItem>(builder =>
@@ -114,6 +122,78 @@ public class AppDbContext : DbContext
                 .IsRequired();
 
             builder.HasIndex(x => x.ProductId);
+            builder.HasIndex(x => x.CreatedAtUtc);
+        });
+
+        modelBuilder.Entity<Order>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+
+            builder.Property(x => x.OrderNumber)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            builder.Property(x => x.Status)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            builder.Property(x => x.PaymentStatus)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            builder.Property(x => x.TotalAmount)
+                .HasColumnType("decimal(18,2)");
+
+            builder.Property(x => x.CustomerCountry)
+                .HasMaxLength(100);
+
+            builder.Property(x => x.Market)
+                .HasMaxLength(100);
+
+            builder.Property(x => x.CreatedAtUtc)
+                .IsRequired();
+
+            builder.HasIndex(x => x.OrderNumber)
+                .IsUnique();
+
+            builder.HasMany(x => x.Items)
+                .WithOne(x => x.Order)
+                .HasForeignKey(x => x.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OrderItem>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+
+            builder.Property(x => x.Quantity)
+                .IsRequired();
+
+            builder.Property(x => x.UnitPrice)
+                .HasColumnType("decimal(18,2)");
+
+            builder.Property(x => x.LineTotal)
+                .HasColumnType("decimal(18,2)");
+
+            builder.HasIndex(x => x.OrderId);
+            builder.HasIndex(x => x.ProductId);
+        });
+
+        modelBuilder.Entity<SystemEvent>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+
+            builder.Property(x => x.EventType)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            builder.Property(x => x.PayloadJson)
+                .IsRequired();
+
+            builder.Property(x => x.CreatedAtUtc)
+                .IsRequired();
+
+            builder.HasIndex(x => x.EventType);
             builder.HasIndex(x => x.CreatedAtUtc);
         });
     }

@@ -12,6 +12,7 @@ public class Product
     public Category Category { get; set; } = null!;
     public InventoryItem? InventoryItem { get; set; }
     public ICollection<InventoryMovement> InventoryMovements { get; set; } = new List<InventoryMovement>();
+    public ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAtUtc { get; set; }
 }
