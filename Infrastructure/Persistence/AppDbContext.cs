@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
+    public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,6 +63,11 @@ public class AppDbContext : DbContext
                 .WithOne(x => x.Product)
                 .HasForeignKey<InventoryItem>(x => x.ProductId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.HasMany(x => x.InventoryMovements)
+                .WithOne(x => x.Product)
+                .HasForeignKey(x => x.ProductId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<InventoryItem>(builder =>
@@ -82,6 +88,33 @@ public class AppDbContext : DbContext
 
             builder.HasIndex(x => x.ProductId)
                 .IsUnique();
+        });
+
+        modelBuilder.Entity<InventoryMovement>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+
+            builder.Property(x => x.MovementType)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            builder.Property(x => x.Quantity)
+                .IsRequired();
+
+            builder.Property(x => x.Reason)
+                .HasMaxLength(500);
+
+            builder.Property(x => x.StockOnHandAfter)
+                .IsRequired();
+
+            builder.Property(x => x.StockReservedAfter)
+                .IsRequired();
+
+            builder.Property(x => x.CreatedAtUtc)
+                .IsRequired();
+
+            builder.HasIndex(x => x.ProductId);
+            builder.HasIndex(x => x.CreatedAtUtc);
         });
     }
 }

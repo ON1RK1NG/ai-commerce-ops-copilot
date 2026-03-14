@@ -8,7 +8,8 @@ import type {
   UpdateProductRequest,
 } from "../types/product";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? "https://localhost:7017/api";
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -58,29 +59,27 @@ export async function getProducts(
   params: ProductQueryParams = {}
 ): Promise<ProductListResponse> {
   const queryString = buildQueryString(params);
-  const response = await fetch(`${API_BASE_URL}/api/products${queryString}`);
-  return handleResponse<ProductListResponse>(response);
+  const response = await fetch(`${API_BASE_URL}/products${queryString}`);
+  return handleResponse(response);
 }
 
 export async function getProductSummary(
   params: ProductQueryParams = {}
 ): Promise<InventorySummary> {
   const queryString = buildQueryString(params);
-  const response = await fetch(
-    `${API_BASE_URL}/api/products/summary${queryString}`
-  );
-  return handleResponse<InventorySummary>(response);
+  const response = await fetch(`${API_BASE_URL}/products/summary${queryString}`);
+  return handleResponse(response);
 }
 
 export async function getCategories(): Promise<Category[]> {
-  const response = await fetch(`${API_BASE_URL}/api/categories`);
-  return handleResponse<Category[]>(response);
+  const response = await fetch(`${API_BASE_URL}/categories`);
+  return handleResponse(response);
 }
 
 export async function createProduct(
   request: CreateProductRequest
 ): Promise<Product> {
-  const response = await fetch(`${API_BASE_URL}/api/products`, {
+  const response = await fetch(`${API_BASE_URL}/products`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -88,14 +87,14 @@ export async function createProduct(
     body: JSON.stringify(request),
   });
 
-  return handleResponse<Product>(response);
+  return handleResponse(response);
 }
 
 export async function updateProduct(
   id: number,
   request: UpdateProductRequest
 ): Promise<Product> {
-  const response = await fetch(`${API_BASE_URL}/api/products/${id}`, {
+  const response = await fetch(`${API_BASE_URL}/products/${id}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -103,13 +102,13 @@ export async function updateProduct(
     body: JSON.stringify(request),
   });
 
-  return handleResponse<Product>(response);
+  return handleResponse(response);
 }
 
 export async function deleteProduct(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/products/${id}`, {
+  const response = await fetch(`${API_BASE_URL}/products/${id}`, {
     method: "DELETE",
   });
 
-  await handleResponse<void>(response);
+  await handleResponse(response);
 }
