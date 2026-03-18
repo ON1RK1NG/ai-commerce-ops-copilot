@@ -5,7 +5,7 @@ namespace Infrastructure.Persistence;
 
 public class AppDbContext : DbContext
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+    public AppDbContext(DbContextOptions options) : base(options)
     {
     }
 
@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<SystemEvent> SystemEvents => Set<SystemEvent>();
+    public DbSet<Alert> Alerts => Set<Alert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -195,6 +196,41 @@ public class AppDbContext : DbContext
 
             builder.HasIndex(x => x.EventType);
             builder.HasIndex(x => x.CreatedAtUtc);
+        });
+
+        modelBuilder.Entity<Alert>(builder =>
+        {
+            builder.HasKey(x => x.Id);
+
+            builder.Property(x => x.AlertType)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            builder.Property(x => x.Severity)
+                .IsRequired()
+                .HasMaxLength(20);
+
+            builder.Property(x => x.Title)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            builder.Property(x => x.Description)
+                .IsRequired()
+                .HasMaxLength(1000);
+
+            builder.Property(x => x.CreatedAtUtc)
+                .IsRequired();
+
+            builder.HasIndex(x => x.AlertType);
+            builder.HasIndex(x => x.Severity);
+            builder.HasIndex(x => x.IsAcknowledged);
+            builder.HasIndex(x => x.IsResolved);
+            builder.HasIndex(x => x.CreatedAtUtc);
+
+            builder.HasOne(x => x.Product)
+                .WithMany()
+                .HasForeignKey(x => x.ProductId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

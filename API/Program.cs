@@ -1,6 +1,7 @@
 using Domain.Entities;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using API.Services;
 
 namespace API;
 
@@ -30,6 +31,8 @@ public class Program
                     .AllowAnyMethod();
             });
         });
+
+        builder.Services.AddScoped<AlertRuleEvaluator>();
 
         var app = builder.Build();
 

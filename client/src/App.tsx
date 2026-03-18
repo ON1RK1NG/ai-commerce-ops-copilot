@@ -1,10 +1,11 @@
 import { useState } from "react";
 import "./App.css";
+import DashboardPage from "./pages/DashboardPage";
 import InventoryPage from "./pages/InventoryPage";
 import OrdersPage from "./pages/OrdersPage";
 import ProductsPage from "./pages/ProductsPage";
 
-type View = "products" | "inventory" | "orders";
+type View = "dashboard" | "products" | "inventory" | "orders";
 
 function AppLogo() {
   return (
@@ -61,7 +62,7 @@ function NavButton({
 }
 
 export default function App() {
-  const [view, setView] = useState<View>("products");
+  const [view, setView] = useState<View>("dashboard");
 
   return (
     <div className="app-shell">
@@ -73,6 +74,11 @@ export default function App() {
           </div>
 
           <div className="app-nav">
+            <NavButton
+              label="Dashboard"
+              active={view === "dashboard"}
+              onClick={() => setView("dashboard")}
+            />
             <NavButton
               label="Products"
               active={view === "products"}
@@ -93,6 +99,7 @@ export default function App() {
       </header>
 
       <main className="app-main">
+        {view === "dashboard" && <DashboardPage />}
         {view === "products" && <ProductsPage />}
         {view === "inventory" && <InventoryPage />}
         {view === "orders" && <OrdersPage />}
