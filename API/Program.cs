@@ -20,6 +20,7 @@ public class Program
                 builder.Configuration.GetConnectionString("DefaultConnection")));
 
         builder.Services.AddScoped<LowStockAlertService>();
+        builder.Services.AddScoped<AlertRuleEvaluator>();
 
         builder.Services.AddCors(options =>
         {
