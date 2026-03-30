@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getAlerts } from "../api/alertsApi";
 import { getDashboardSummary } from "../api/dashboardApi";
 import type { AlertListResponse } from "../types/alert";
 import type { DashboardSummary } from "../types/dashboard";
 import "../styles/DashboardPage.css";
+
+const DASHBOARD_REFRESH_INTERVAL_MS = 20000;
 
 const initialSummary: DashboardSummary = {
   totalProducts: 0,
@@ -53,51 +55,89 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<DashboardSummary>(initialSummary);
-  const [alerts, setAlerts] = useState<AlertListResponse>(initialAlerts);
-
+  const [summary, setSummary] = useState(initialSummary);
+  const [alerts, setAlerts] = useState(initialAlerts);
   const [loading, setLoading] = useState(true);
   const [alertsLoading, setAlertsLoading] = useState(true);
-
   const [error, setError] = useState("");
   const [alertsError, setAlertsError] = useState("");
 
-  useEffect(() => {
-    async function loadDashboard() {
-      try {
+  const loadDashboard = useCallback(async (showLoader = true) => {
+    try {
+      if (showLoader) {
         setLoading(true);
-        setError("");
+      }
 
-        const response = await getDashboardSummary();
-        setSummary(response);
-      } catch (err) {
-        setError(getErrorMessage(err, "Failed to load dashboard summary."));
-      } finally {
+      setError("");
+      const response = await getDashboardSummary();
+      setSummary(response);
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to load dashboard summary."));
+    } finally {
+      if (showLoader) {
         setLoading(false);
       }
     }
+  }, []);
 
-    async function loadAlertsPreview() {
-      try {
+  const loadAlertsPreview = useCallback(async (showLoader = true) => {
+    try {
+      if (showLoader) {
         setAlertsLoading(true);
-        setAlertsError("");
+      }
 
-        const response = await getAlerts({
-          page: 1,
-          pageSize: 5,
-        });
+      setAlertsError("");
 
-        setAlerts(response);
-      } catch (err) {
-        setAlertsError(getErrorMessage(err, "Failed to load alerts."));
-      } finally {
+      const response = await getAlerts({
+        page: 1,
+        pageSize: 5,
+      });
+
+      setAlerts(response);
+    } catch (err) {
+      setAlertsError(getErrorMessage(err, "Failed to load alerts."));
+    } finally {
+      if (showLoader) {
         setAlertsLoading(false);
       }
     }
+  }, []);
 
+  useEffect(() => {
     void loadDashboard();
     void loadAlertsPreview();
-  }, []);
+  }, [loadDashboard, loadAlertsPreview]);
+
+  useEffect(() => {
+    const refreshDashboard = () => {
+      void loadDashboard(false);
+      void loadAlertsPreview(false);
+    };
+
+    const intervalId = window.setInterval(
+      refreshDashboard,
+      DASHBOARD_REFRESH_INTERVAL_MS
+    );
+
+    const handleWindowFocus = () => {
+      refreshDashboard();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshDashboard();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadDashboard, loadAlertsPreview]);
 
   return (
     <div className="dashboard-page">
@@ -112,14 +152,10 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {error ? (
-        <div className="dashboard-message dashboard-message-error">{error}</div>
-      ) : null}
+      {error ? <div className="dashboard-message error">{error}</div> : null}
 
       {loading ? (
-        <div className="dashboard-panel">
-          <p>Loading dashboard...</p>
-        </div>
+        <div className="dashboard-empty-state">Loading dashboard...</div>
       ) : (
         <>
           <section className="dashboard-stats-grid">
@@ -141,7 +177,7 @@ export default function DashboardPage() {
               <small>Products with zero or negative available stock</small>
             </article>
 
-            <article className="dashboard-stat-card">
+            <article className="dashboard-stat-card accent">
               <span>Today Orders</span>
               <strong>{summary.todayOrdersCount}</strong>
               <small>Orders created today</small>
@@ -153,13 +189,13 @@ export default function DashboardPage() {
               <small>Total revenue from today’s orders</small>
             </article>
 
-            <article className="dashboard-stat-card accent">
+            <article className="dashboard-stat-card warning">
               <span>Needs Attention</span>
               <strong>{summary.stockAttentionCount}</strong>
               <small>Products at or below reorder threshold</small>
             </article>
 
-            <article className="dashboard-stat-card warning">
+            <article className="dashboard-stat-card danger">
               <span>Open Alerts</span>
               <strong>{alerts.openCount}</strong>
               <small>Alerts that still need action</small>
@@ -172,8 +208,8 @@ export default function DashboardPage() {
             </article>
           </section>
 
-          <section className="dashboard-grid">
-            <article className="dashboard-panel">
+          <div className="dashboard-content-grid">
+            <section className="dashboard-panel">
               <div className="dashboard-panel-header">
                 <div>
                   <h2>Top Selling Products</h2>
@@ -183,7 +219,7 @@ export default function DashboardPage() {
 
               {summary.topSellingProducts.length === 0 ? (
                 <div className="dashboard-empty-state">
-                  <p>No sales data available yet.</p>
+                  No sales data available yet.
                 </div>
               ) : (
                 <div className="dashboard-table-wrap">
@@ -211,9 +247,9 @@ export default function DashboardPage() {
                   </table>
                 </div>
               )}
-            </article>
+            </section>
 
-            <article className="dashboard-panel">
+            <section className="dashboard-panel">
               <div className="dashboard-panel-header">
                 <div>
                   <h2>Recent Orders</h2>
@@ -223,88 +259,64 @@ export default function DashboardPage() {
 
               {summary.recentOrders.length === 0 ? (
                 <div className="dashboard-empty-state">
-                  <p>No recent orders found.</p>
+                  No recent orders found.
                 </div>
               ) : (
-                <div className="dashboard-list">
+                <div className="dashboard-order-list">
                   {summary.recentOrders.map((order) => (
-                    <div key={order.id} className="dashboard-list-item">
-                      <div className="dashboard-list-main">
-                        <div className="dashboard-list-top">
-                          <strong>{order.orderNumber}</strong>
-                          <span>{formatCurrency(order.totalAmount)}</span>
-                        </div>
-
-                        <div className="dashboard-order-meta">
-                          <span>Status: {order.status}</span>
-                          <span>Payment: {order.paymentStatus}</span>
-                          <span>
-                            Market: {order.market || order.customerCountry || "N/A"}
-                          </span>
-                        </div>
+                    <article className="dashboard-order-card" key={order.id}>
+                      <div className="dashboard-order-top">
+                        <strong>{order.orderNumber}</strong>
+                        <span>{formatCurrency(order.totalAmount)}</span>
                       </div>
 
-                      <time>{formatDate(order.createdAtUtc)}</time>
-                    </div>
+                      <p>
+                        Status: {order.status} · Payment: {order.paymentStatus} ·
+                        Market: {order.market || order.customerCountry || "N/A"}
+                      </p>
+
+                      <small>{formatDate(order.createdAtUtc)}</small>
+                    </article>
                   ))}
                 </div>
               )}
-            </article>
-          </section>
+            </section>
+          </div>
 
-          <section className="dashboard-panel dashboard-next-panel">
+          <section className="dashboard-panel">
             <div className="dashboard-panel-header">
               <div>
                 <h2>Recent Alerts</h2>
-                <p>
-                  Latest operational alerts from the alerts module.
-                </p>
+                <p>Latest operational alerts from the alerts module.</p>
               </div>
             </div>
 
             {alertsError ? (
-              <div className="dashboard-empty-state">
-                <p>{alertsError}</p>
-              </div>
+              <div className="dashboard-message error">{alertsError}</div>
             ) : alertsLoading ? (
-              <div className="dashboard-empty-state">
-                <p>Loading alerts...</p>
-              </div>
+              <div className="dashboard-empty-state">Loading alerts...</div>
             ) : alerts.items.length === 0 ? (
-              <div className="dashboard-empty-state">
-                <p>No alerts found.</p>
-              </div>
+              <div className="dashboard-empty-state">No alerts found.</div>
             ) : (
-              <div className="dashboard-list">
+              <div className="dashboard-alerts-list">
                 {alerts.items.map((alert) => (
-                  <div key={alert.id} className="dashboard-list-item">
-                    <div className="dashboard-list-main">
-                      <div className="dashboard-list-top">
-                        <strong>{alert.title}</strong>
-                        <span>
-                          {alert.severity} · {alert.status}
-                        </span>
-                      </div>
-
-                      <div className="dashboard-order-meta">
-                        <span>Type: {alert.alertType}</span>
-                        <span>SKU: {alert.sku || "N/A"}</span>
-                        <span>Product: {alert.productName || "N/A"}</span>
-                      </div>
-
-                      <p
-                        style={{
-                          margin: "0.45rem 0 0",
-                          color: "#64748b",
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        {alert.description}
-                      </p>
+                  <article className="dashboard-alert-card" key={alert.id}>
+                    <div className="dashboard-alert-top">
+                      <strong>{alert.title}</strong>
+                      <span>
+                        {alert.severity} · {alert.status}
+                      </span>
                     </div>
 
-                    <time>{formatDate(alert.createdAtUtc)}</time>
-                  </div>
+                    <p>
+                      Type: {alert.alertType} · SKU: {alert.sku || "N/A"} ·
+                      Product: {alert.productName || "N/A"}
+                    </p>
+
+                    <p>{alert.description}</p>
+
+                    <small>{formatDate(alert.createdAtUtc)}</small>
+                  </article>
                 ))}
               </div>
             )}

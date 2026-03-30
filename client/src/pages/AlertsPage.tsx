@@ -11,6 +11,7 @@ import type { InventoryDetail } from "../types/inventory";
 import "../styles/AlertsPage.css";
 
 const DEFAULT_PAGE_SIZE = 10;
+const ALERTS_REFRESH_INTERVAL_MS = 20000;
 
 const initialResponse: AlertListResponse = {
   items: [],
@@ -131,40 +132,69 @@ export default function AlertsPage() {
     return Array.from(values);
   }, [alertsResponse.items]);
 
-  const loadAlerts = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      const data = await getAlerts({
-        search: search.trim() || undefined,
-        status: status === "all" ? undefined : status,
-        severity: severity === "all" ? undefined : severity,
-        alertType: alertType === "all" ? undefined : alertType,
-        page,
-        pageSize,
-      });
-
-      setAlertsResponse(data);
-
-      setSelectedAlert((current) => {
-        if (!current) {
-          return current;
+  const loadAlerts = useCallback(
+    async (showLoader = true) => {
+      try {
+        if (showLoader) {
+          setLoading(true);
         }
 
-        const updated = data.items.find((item) => item.id === current.id);
-        return updated ?? current;
-      });
+        setError("");
 
-      if (data.totalPages > 0 && page > data.totalPages) {
-        setPage(data.totalPages);
+        const data = await getAlerts({
+          search: search.trim() || undefined,
+          status: status === "all" ? undefined : status,
+          severity: severity === "all" ? undefined : severity,
+          alertType: alertType === "all" ? undefined : alertType,
+          page,
+          pageSize,
+        });
+
+        setAlertsResponse(data);
+
+        setSelectedAlert((current) => {
+          if (!current) {
+            return current;
+          }
+
+          const updated = data.items.find((item) => item.id === current.id);
+          return updated ?? current;
+        });
+
+        if (data.totalPages > 0 && page > data.totalPages) {
+          setPage(data.totalPages);
+        }
+      } catch (err) {
+        setError(getErrorMessage(err, "Failed to load alerts."));
+      } finally {
+        if (showLoader) {
+          setLoading(false);
+        }
       }
-    } catch (err) {
-      setError(getErrorMessage(err, "Failed to load alerts."));
-    } finally {
-      setLoading(false);
-    }
-  }, [alertType, page, pageSize, search, severity, status]);
+    },
+    [alertType, page, pageSize, search, severity, status]
+  );
+
+  const loadInventoryDetails = useCallback(
+    async (productId: number, showLoader = true) => {
+      try {
+        if (showLoader) {
+          setLoadingDetails(true);
+          setSelectedAlertDetails(null);
+        }
+
+        const detail = await getInventoryByProductId(productId);
+        setSelectedAlertDetails(detail);
+      } catch (err) {
+        setError(getErrorMessage(err, "Failed to load alert details."));
+      } finally {
+        if (showLoader) {
+          setLoadingDetails(false);
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     void loadAlerts();
@@ -183,25 +213,49 @@ export default function AlertsPage() {
     return () => window.clearTimeout(timeoutId);
   }, [success, error]);
 
+  useEffect(() => {
+    const refreshPageData = () => {
+      void loadAlerts(false);
+
+      if (selectedAlert?.productId) {
+        void loadInventoryDetails(selectedAlert.productId, false);
+      }
+    };
+
+    const intervalId = window.setInterval(
+      refreshPageData,
+      ALERTS_REFRESH_INTERVAL_MS
+    );
+
+    const handleWindowFocus = () => {
+      refreshPageData();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshPageData();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadAlerts, loadInventoryDetails, selectedAlert?.productId]);
+
   async function loadAlertDetails(alert: AlertListItem) {
     setSelectedAlert(alert);
-    setSelectedAlertDetails(null);
 
     if (!alert.productId) {
+      setSelectedAlertDetails(null);
       return;
     }
 
-    try {
-      setLoadingDetails(true);
-      setError("");
-
-      const detail = await getInventoryByProductId(alert.productId);
-      setSelectedAlertDetails(detail);
-    } catch (err) {
-      setError(getErrorMessage(err, "Failed to load alert details."));
-    } finally {
-      setLoadingDetails(false);
-    }
+    await loadInventoryDetails(alert.productId);
   }
 
   function closeDrawer() {
@@ -218,7 +272,12 @@ export default function AlertsPage() {
 
       const response = await syncLowStockAlerts();
       setSuccess(response.message || "Alerts synced successfully.");
-      await loadAlerts();
+
+      await loadAlerts(false);
+
+      if (selectedAlert?.productId) {
+        await loadInventoryDetails(selectedAlert.productId, false);
+      }
     } catch (err) {
       setError(getErrorMessage(err, "Failed to sync low-stock alerts."));
     } finally {
@@ -241,7 +300,11 @@ export default function AlertsPage() {
       );
 
       setSuccess("Alert acknowledged.");
-      await loadAlerts();
+      await loadAlerts(false);
+
+      if (selectedAlert?.productId) {
+        await loadInventoryDetails(selectedAlert.productId, false);
+      }
     } catch (err) {
       setError(getErrorMessage(err, "Failed to acknowledge alert."));
     } finally {
@@ -262,7 +325,11 @@ export default function AlertsPage() {
       );
 
       setSuccess("Alert resolved.");
-      await loadAlerts();
+      await loadAlerts(false);
+
+      if (selectedAlert?.productId) {
+        await loadInventoryDetails(selectedAlert.productId, false);
+      }
     } catch (err) {
       setError(getErrorMessage(err, "Failed to resolve alert."));
     } finally {
