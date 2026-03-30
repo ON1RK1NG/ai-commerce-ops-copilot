@@ -1,9 +1,11 @@
 ﻿using API.Controllers;
+using API.Services;
 using Application.DTOs;
 using Domain.Entities;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 
 namespace AiCommerceOpsCopilot.Tests.Controllers;
@@ -58,7 +60,6 @@ public class ProductsControllerTests
         Assert.Equal(63.75m, summary.AveragePrice);
         Assert.Equal(50, summary.LowStockPercentage);
         Assert.Equal(50, summary.CatalogHealthPercentage);
-
         Assert.Equal(2, summary.TopCategories.Count);
 
         var topCategory = summary.TopCategories[0];
@@ -248,6 +249,7 @@ public class ProductsControllerTests
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
 
         var context = new AppDbContext(options);
@@ -257,7 +259,10 @@ public class ProductsControllerTests
 
         SeedCatalog(context);
 
-        return (new ProductsController(context), context);
+        var lowStockAlertService = new LowStockAlertService(context);
+        var controller = new ProductsController(context, lowStockAlertService);
+
+        return (controller, context);
     }
 
     private static void SeedCatalog(AppDbContext context)

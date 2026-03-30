@@ -5,6 +5,7 @@ using Domain.Entities;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace API.Controllers;
 
@@ -185,12 +186,12 @@ public class ProductsController : ControllerBase
 
         _context.Products.Add(product);
 
-        await using var transaction = await _context.Database.BeginTransactionAsync();
-
-        await _context.SaveChangesAsync();
-        await _lowStockAlertService.SyncForProductAsync(product.Id);
-        await _context.SaveChangesAsync();
-        await transaction.CommitAsync();
+        await ExecuteWithOptionalTransactionAsync(async () =>
+        {
+            await _context.SaveChangesAsync();
+            await _lowStockAlertService.SyncForProductAsync(product.Id);
+            await _context.SaveChangesAsync();
+        });
 
         var createdProduct = await _context.Products
             .AsNoTracking()
@@ -253,12 +254,12 @@ public class ProductsController : ControllerBase
         product.InventoryItem.ReorderThreshold = request.ReorderThreshold;
         product.InventoryItem.UpdatedAtUtc = DateTime.UtcNow;
 
-        await using var transaction = await _context.Database.BeginTransactionAsync();
-
-        await _context.SaveChangesAsync();
-        await _lowStockAlertService.SyncForProductAsync(product.Id);
-        await _context.SaveChangesAsync();
-        await transaction.CommitAsync();
+        await ExecuteWithOptionalTransactionAsync(async () =>
+        {
+            await _context.SaveChangesAsync();
+            await _lowStockAlertService.SyncForProductAsync(product.Id);
+            await _context.SaveChangesAsync();
+        });
 
         var updatedProduct = await _context.Products
             .AsNoTracking()
@@ -290,6 +291,21 @@ public class ProductsController : ControllerBase
         await _context.SaveChangesAsync();
 
         return NoContent();
+    }
+
+    private async Task ExecuteWithOptionalTransactionAsync(Func<Task> action)
+    {
+        if (_context.Database.IsRelational())
+        {
+            await using IDbContextTransaction transaction = await _context.Database.BeginTransactionAsync();
+
+            await action();
+
+            await transaction.CommitAsync();
+            return;
+        }
+
+        await action();
     }
 
     private IQueryable<Product> BuildFilteredProductsQuery(ProductQueryParametersDto query)
