@@ -146,6 +146,7 @@ export default function AlertsPage() {
       });
 
       setAlertsResponse(data);
+
       setSelectedAlert((current) => {
         if (!current) {
           return current;
