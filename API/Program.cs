@@ -1,7 +1,7 @@
+using API.Services;
 using Domain.Entities;
 using Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using API.Services;
 
 namespace API;
 
@@ -19,20 +19,19 @@ public class Program
             options.UseSqlServer(
                 builder.Configuration.GetConnectionString("DefaultConnection")));
 
+        builder.Services.AddScoped<LowStockAlertService>();
+
         builder.Services.AddCors(options =>
         {
             options.AddPolicy("Frontend", policy =>
             {
                 policy.WithOrigins(
                         "http://localhost:5173",
-                        "http://localhost:5174"
-                    )
+                        "http://localhost:5174")
                     .AllowAnyHeader()
                     .AllowAnyMethod();
             });
         });
-
-        builder.Services.AddScoped<AlertRuleEvaluator>();
 
         var app = builder.Build();
 
@@ -43,9 +42,7 @@ public class Program
         }
 
         app.UseHttpsRedirection();
-
         app.UseCors("Frontend");
-
         app.UseAuthorization();
         app.MapControllers();
 

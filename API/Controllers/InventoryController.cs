@@ -1,4 +1,5 @@
-﻿using Application.DTOs;
+﻿using API.Services;
+using Application.DTOs;
 using Domain.Entities;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
@@ -11,6 +12,7 @@ namespace API.Controllers;
 public class InventoryController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly LowStockAlertService _lowStockAlertService;
 
     private static readonly HashSet<string> AllowedAdjustmentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -20,9 +22,10 @@ public class InventoryController : ControllerBase
         "release-reserved-stock"
     };
 
-    public InventoryController(AppDbContext context)
+    public InventoryController(AppDbContext context, LowStockAlertService lowStockAlertService)
     {
         _context = context;
+        _lowStockAlertService = lowStockAlertService;
     }
 
     [HttpGet]
@@ -30,7 +33,6 @@ public class InventoryController : ControllerBase
     {
         var page = query.Page < 1 ? 1 : query.Page;
         var pageSize = query.PageSize <= 0 ? 10 : Math.Min(query.PageSize, 100);
-
         var recentSalesFrom = DateTime.UtcNow.AddDays(-14);
 
         var baseRows = await _context.Products
@@ -61,8 +63,7 @@ public class InventoryController : ControllerBase
                 var recommendation = BuildRecommendation(
                     stockAvailable,
                     x.ReorderThreshold,
-                    x.RecentUnitsSold
-                );
+                    x.RecentUnitsSold);
 
                 return new InventoryListItemDto
                 {
@@ -88,6 +89,7 @@ public class InventoryController : ControllerBase
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var search = query.Search.Trim().ToLower();
+
             items = items.Where(x =>
                 x.Sku.ToLower().Contains(search) ||
                 x.ProductName.ToLower().Contains(search) ||
@@ -145,7 +147,7 @@ public class InventoryController : ControllerBase
             .Include(x => x.Category)
             .Include(x => x.InventoryItem)
             .Include(x => x.OrderItems)
-                .ThenInclude(x => x.Order)
+            .ThenInclude(x => x.Order)
             .FirstOrDefaultAsync(x => x.Id == productId);
 
         if (product is null)
@@ -159,6 +161,7 @@ public class InventoryController : ControllerBase
         var stockAvailable = stockOnHand - stockReserved;
         var isLowStock = stockAvailable <= reorderThreshold;
         var isOutOfStock = stockAvailable <= 0;
+
         var recentUnitsSold = product.OrderItems
             .Where(oi => oi.Order.CreatedAtUtc >= recentSalesFrom)
             .Sum(oi => oi.Quantity);
@@ -166,8 +169,7 @@ public class InventoryController : ControllerBase
         var recommendation = BuildRecommendation(
             stockAvailable,
             reorderThreshold,
-            recentUnitsSold
-        );
+            recentUnitsSold);
 
         var recentMovements = await BuildMovementQuery(productId)
             .OrderByDescending(x => x.CreatedAtUtc)
@@ -198,7 +200,10 @@ public class InventoryController : ControllerBase
     }
 
     [HttpGet("movements")]
-    public async Task<ActionResult<List<InventoryMovementDto>>> GetMovements([FromQuery] int? productId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<ActionResult<List<InventoryMovementDto>>> GetMovements(
+        [FromQuery] int? productId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
     {
         page = page < 1 ? 1 : page;
         pageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
@@ -236,7 +241,7 @@ public class InventoryController : ControllerBase
             .Include(x => x.Category)
             .Include(x => x.InventoryItem)
             .Include(x => x.OrderItems)
-                .ThenInclude(x => x.Order)
+            .ThenInclude(x => x.Order)
             .FirstOrDefaultAsync(x => x.Id == request.ProductId);
 
         if (product is null)
@@ -310,9 +315,16 @@ public class InventoryController : ControllerBase
         };
 
         _context.InventoryMovements.Add(movement);
+
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
         await _context.SaveChangesAsync();
+        await _lowStockAlertService.SyncForProductAsync(product.Id);
+        await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         var stockAvailable = inventoryItem.StockOnHand - inventoryItem.StockReserved;
+
         var recentUnitsSold = product.OrderItems
             .Where(oi => oi.Order.CreatedAtUtc >= DateTime.UtcNow.AddDays(-14))
             .Sum(oi => oi.Quantity);
@@ -320,8 +332,7 @@ public class InventoryController : ControllerBase
         var recommendation = BuildRecommendation(
             stockAvailable,
             inventoryItem.ReorderThreshold,
-            recentUnitsSold
-        );
+            recentUnitsSold);
 
         var detail = new InventoryDetailDto
         {
@@ -425,9 +436,7 @@ public class InventoryController : ControllerBase
             return (
                 Math.Max(recommendedUnits, 0),
                 "medium",
-                recommendedUnits > 0
-                    ? $"Restock soon: {recommendedUnits} units"
-                    : "Restock soon"
+                recommendedUnits > 0 ? $"Restock soon: {recommendedUnits} units" : "Restock soon"
             );
         }
 

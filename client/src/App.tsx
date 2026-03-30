@@ -1,39 +1,39 @@
 import { useState } from "react";
 import "./App.css";
+import AlertsPage from "./pages/AlertsPage";
 import DashboardPage from "./pages/DashboardPage";
 import InventoryPage from "./pages/InventoryPage";
 import OrdersPage from "./pages/OrdersPage";
 import ProductsPage from "./pages/ProductsPage";
 
-type View = "dashboard" | "products" | "inventory" | "orders";
+type View = "dashboard" | "products" | "inventory" | "orders" | "alerts";
 
 function AppLogo() {
   return (
-    <div className="app-logo">
+    <div className="app-logo" aria-hidden="true">
       <svg
         width="28"
         height="28"
-        viewBox="0 0 24 24"
+        viewBox="0 0 28 28"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
       >
         <path
-          d="M4 7.5L12 3L20 7.5V16.5L12 21L4 16.5V7.5Z"
+          d="M8 8.5C8 6.567 9.567 5 11.5 5H18.5C20.433 5 22 6.567 22 8.5C22 10.433 20.433 12 18.5 12H11.5C9.567 12 8 13.567 8 15.5C8 17.433 9.567 19 11.5 19H20"
           stroke="white"
-          strokeWidth="1.8"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M8 10.5H16"
-          stroke="white"
-          strokeWidth="1.8"
+          strokeWidth="2.4"
           strokeLinecap="round"
         />
         <path
-          d="M8 13.5H13.5"
+          d="M20 19L17 16"
           stroke="white"
-          strokeWidth="1.8"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+        />
+        <path
+          d="M20 19L17 22"
+          stroke="white"
+          strokeWidth="2.4"
           strokeLinecap="round"
         />
       </svg>
@@ -53,8 +53,8 @@ function NavButton({
   return (
     <button
       type="button"
-      onClick={onClick}
       className={`app-nav-button ${active ? "active" : ""}`}
+      onClick={onClick}
     >
       {label}
     </button>
@@ -73,28 +73,33 @@ export default function App() {
             <h1 className="app-title">Commerce Ops</h1>
           </div>
 
-          <div className="app-nav">
+          <nav className="app-nav" aria-label="Primary navigation">
             <NavButton
-              label="Dashboard"
               active={view === "dashboard"}
+              label="Dashboard"
               onClick={() => setView("dashboard")}
             />
             <NavButton
-              label="Products"
               active={view === "products"}
+              label="Products"
               onClick={() => setView("products")}
             />
             <NavButton
-              label="Inventory"
               active={view === "inventory"}
+              label="Inventory"
               onClick={() => setView("inventory")}
             />
             <NavButton
-              label="Orders"
               active={view === "orders"}
+              label="Orders"
               onClick={() => setView("orders")}
             />
-          </div>
+            <NavButton
+              active={view === "alerts"}
+              label="Alerts"
+              onClick={() => setView("alerts")}
+            />
+          </nav>
         </div>
       </header>
 
@@ -103,6 +108,7 @@ export default function App() {
         {view === "products" && <ProductsPage />}
         {view === "inventory" && <InventoryPage />}
         {view === "orders" && <OrdersPage />}
+        {view === "alerts" && <AlertsPage />}
       </main>
     </div>
   );

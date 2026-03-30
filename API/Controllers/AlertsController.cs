@@ -1,5 +1,5 @@
-﻿using Application.DTOs;
-using Domain.Entities;
+﻿using API.Services;
+using Application.DTOs;
 using Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -11,10 +11,12 @@ namespace API.Controllers;
 public class AlertsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly LowStockAlertService _lowStockAlertService;
 
-    public AlertsController(AppDbContext context)
+    public AlertsController(AppDbContext context, LowStockAlertService lowStockAlertService)
     {
         _context = context;
+        _lowStockAlertService = lowStockAlertService;
     }
 
     [HttpGet]
@@ -122,48 +124,15 @@ public class AlertsController : ControllerBase
     }
 
     [HttpPost("sync-low-stock")]
-    public async Task<ActionResult> SyncLowStockAlerts()
+    public async Task<ActionResult> SyncLowStockAlerts(CancellationToken cancellationToken)
     {
-        var products = await _context.Products
-            .Include(x => x.InventoryItem)
-            .ToListAsync();
+        var productIds = await _context.Products
+            .AsNoTracking()
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
 
-        foreach (var product in products)
-        {
-            var stockOnHand = product.InventoryItem?.StockOnHand ?? 0;
-            var stockReserved = product.InventoryItem?.StockReserved ?? 0;
-            var reorderThreshold = product.InventoryItem?.ReorderThreshold ?? 0;
-            var availableStock = stockOnHand - stockReserved;
-            var isLowStock = availableStock <= reorderThreshold;
-
-            var existingOpenOrAcknowledgedAlert = await _context.Alerts.FirstOrDefaultAsync(x =>
-                x.ProductId == product.Id &&
-                x.AlertType == "low-stock" &&
-                !x.IsResolved);
-
-            if (isLowStock && existingOpenOrAcknowledgedAlert is null)
-            {
-                _context.Alerts.Add(new Alert
-                {
-                    ProductId = product.Id,
-                    AlertType = "low-stock",
-                    Severity = availableStock <= 0 ? "critical" : "warning",
-                    Title = $"Low stock: {product.Name}",
-                    Description = $"Available stock is {availableStock}, reorder threshold is {reorderThreshold}.",
-                    IsAcknowledged = false,
-                    IsResolved = false,
-                    CreatedAtUtc = DateTime.UtcNow
-                });
-            }
-
-            if (!isLowStock && existingOpenOrAcknowledgedAlert is not null)
-            {
-                existingOpenOrAcknowledgedAlert.IsResolved = true;
-                existingOpenOrAcknowledgedAlert.ResolvedAtUtc = DateTime.UtcNow;
-            }
-        }
-
-        await _context.SaveChangesAsync();
+        await _lowStockAlertService.SyncForProductsAsync(productIds, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
 
         return Ok(new { message = "Low-stock alerts synced successfully." });
     }
@@ -174,7 +143,9 @@ public class AlertsController : ControllerBase
         var alert = await _context.Alerts.FirstOrDefaultAsync(x => x.Id == id);
 
         if (alert is null)
+        {
             return NotFound();
+        }
 
         if (!alert.IsResolved)
         {
@@ -192,19 +163,24 @@ public class AlertsController : ControllerBase
         var alert = await _context.Alerts.FirstOrDefaultAsync(x => x.Id == id);
 
         if (alert is null)
-            return NotFound();
-
-        alert.IsResolved = true;
-
-        if (!alert.IsAcknowledged)
         {
-            alert.IsAcknowledged = true;
-            alert.AcknowledgedAtUtc = DateTime.UtcNow;
+            return NotFound();
         }
 
-        alert.ResolvedAtUtc = DateTime.UtcNow;
+        if (!alert.IsResolved)
+        {
+            alert.IsResolved = true;
 
-        await _context.SaveChangesAsync();
+            if (!alert.IsAcknowledged)
+            {
+                alert.IsAcknowledged = true;
+                alert.AcknowledgedAtUtc = DateTime.UtcNow;
+            }
+
+            alert.ResolvedAtUtc = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+        }
+
         return NoContent();
     }
 }

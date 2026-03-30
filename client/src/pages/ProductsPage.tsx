@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
@@ -269,6 +270,7 @@ export default function ProductsPage() {
   const [serverData, setServerData] =
     useState<ProductListResponse>(initialServerData);
   const [summary, setSummary] = useState<InventorySummary>(initialSummary);
+  const editSectionRef = useRef<HTMLElement | null>(null);
 
   const isEditMode = editingProductId !== null;
   const isDeleteModalOpen = productToDelete !== null;
@@ -492,7 +494,12 @@ export default function ProductsPage() {
       reorderThreshold: product.reorderThreshold,
     });
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.requestAnimationFrame(() => {
+      editSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   }
 
   function handleCancelEdit() {
@@ -764,7 +771,7 @@ export default function ProductsPage() {
         </div>
 
         <div className="content-grid">
-          <section className="panel">
+          <section className="panel" ref={editSectionRef}>
             <div className="panel-header">
               <h2>{isEditMode ? "Edit Product" : "Create Product"}</h2>
               <p>
