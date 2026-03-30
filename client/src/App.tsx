@@ -8,6 +8,12 @@ import ProductsPage from "./pages/ProductsPage";
 
 type View = "dashboard" | "products" | "inventory" | "orders" | "alerts";
 
+type InventoryFocusTarget = {
+  productId: number;
+  sku: string;
+  requestId: number;
+};
+
 function AppLogo() {
   return (
     <div className="app-logo" aria-hidden="true">
@@ -63,6 +69,46 @@ function NavButton({
 
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
+  const [inventoryFocusTarget, setInventoryFocusTarget] =
+    useState<InventoryFocusTarget | null>(null);
+
+  function openInventoryForProduct(
+    productId?: number | null,
+    sku?: string | null
+  ) {
+    if (!productId || !sku) {
+      setView("inventory");
+      return;
+    }
+
+    setInventoryFocusTarget({
+      productId,
+      sku,
+      requestId: Date.now(),
+    });
+    setView("inventory");
+  }
+
+  function openProductsForSku(
+    _productId?: number | null,
+    sku?: string | null
+  ) {
+    if (sku?.trim()) {
+      const params = new URLSearchParams(window.location.search);
+
+      params.set("search", sku.trim());
+      params.delete("categoryId");
+      params.delete("stockStatus");
+      params.delete("sortBy");
+      params.delete("page");
+      params.delete("pageSize");
+
+      const nextUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState(null, "", nextUrl);
+    }
+
+    setView("products");
+  }
 
   return (
     <div className="app-shell">
@@ -106,9 +152,19 @@ export default function App() {
       <main className="app-main">
         {view === "dashboard" && <DashboardPage />}
         {view === "products" && <ProductsPage />}
-        {view === "inventory" && <InventoryPage />}
+        {view === "inventory" && (
+          <InventoryPage
+            focusTarget={inventoryFocusTarget}
+            onFocusHandled={() => setInventoryFocusTarget(null)}
+          />
+        )}
         {view === "orders" && <OrdersPage />}
-        {view === "alerts" && <AlertsPage />}
+        {view === "alerts" && (
+          <AlertsPage
+            onOpenInventory={openInventoryForProduct}
+            onOpenProduct={openProductsForSku}
+          />
+        )}
       </main>
     </div>
   );

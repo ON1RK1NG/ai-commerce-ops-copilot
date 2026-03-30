@@ -27,6 +27,11 @@ const initialResponse: AlertListResponse = {
   infoCount: 0,
 };
 
+type AlertsPageProps = {
+  onOpenInventory?: (productId?: number | null, sku?: string | null) => void;
+  onOpenProduct?: (productId?: number | null, sku?: string | null) => void;
+};
+
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
@@ -98,7 +103,10 @@ function getRecommendationClass(value?: string) {
   }
 }
 
-export default function AlertsPage() {
+export default function AlertsPage({
+  onOpenInventory,
+  onOpenProduct,
+}: AlertsPageProps) {
   const [alertsResponse, setAlertsResponse] = useState(initialResponse);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -123,6 +131,7 @@ export default function AlertsPage() {
 
   const alertTypeOptions = useMemo(() => {
     const values = new Set<string>(["low-stock"]);
+
     alertsResponse.items.forEach((item) => {
       if (item.alertType?.trim()) {
         values.add(item.alertType);
@@ -264,6 +273,16 @@ export default function AlertsPage() {
     setLoadingDetails(false);
   }
 
+  function handleOpenInventory() {
+    closeDrawer();
+    onOpenInventory?.(selectedAlert?.productId, selectedAlert?.sku);
+  }
+
+  function handleOpenProduct() {
+    closeDrawer();
+    onOpenProduct?.(selectedAlert?.productId, selectedAlert?.sku);
+  }
+
   async function handleSyncAlerts() {
     try {
       setSyncing(true);
@@ -272,7 +291,6 @@ export default function AlertsPage() {
 
       const response = await syncLowStockAlerts();
       setSuccess(response.message || "Alerts synced successfully.");
-
       await loadAlerts(false);
 
       if (selectedAlert?.productId) {
@@ -595,7 +613,9 @@ export default function AlertsPage() {
                               disabled={!canAcknowledge || isBusy}
                               onClick={() => void handleAcknowledgeAlert(alert.id)}
                             >
-                              {isBusy && canAcknowledge ? "Working..." : "Acknowledge"}
+                              {isBusy && canAcknowledge
+                                ? "Working..."
+                                : "Acknowledge"}
                             </button>
 
                             <button
@@ -827,6 +847,24 @@ export default function AlertsPage() {
             </div>
 
             <div className="alerts-drawer-actions">
+              <button
+                type="button"
+                className="alerts-action-button view"
+                disabled={!selectedAlert.productId}
+                onClick={handleOpenInventory}
+              >
+                Open Inventory
+              </button>
+
+              <button
+                type="button"
+                className="alerts-action-button view"
+                disabled={!selectedAlert.sku}
+                onClick={handleOpenProduct}
+              >
+                Open Product
+              </button>
+
               <button
                 type="button"
                 className="alerts-action-button secondary"

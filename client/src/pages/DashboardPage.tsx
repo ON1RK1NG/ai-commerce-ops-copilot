@@ -54,6 +54,36 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function toDisplayLabel(value: string) {
+  return value
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getSeverityClass(value: string) {
+  switch (value.toLowerCase()) {
+    case "critical":
+      return "critical";
+    case "warning":
+      return "warning";
+    default:
+      return "info";
+  }
+}
+
+function getStatusClass(value: string) {
+  switch (value.toLowerCase()) {
+    case "resolved":
+      return "resolved";
+    case "acknowledged":
+      return "acknowledged";
+    default:
+      return "open";
+  }
+}
+
 export default function DashboardPage() {
   const [summary, setSummary] = useState(initialSummary);
   const [alerts, setAlerts] = useState(initialAlerts);
@@ -87,7 +117,6 @@ export default function DashboardPage() {
       }
 
       setAlertsError("");
-
       const response = await getAlerts({
         page: 1,
         pageSize: 5,
@@ -303,17 +332,40 @@ export default function DashboardPage() {
                   <article className="dashboard-alert-card" key={alert.id}>
                     <div className="dashboard-alert-top">
                       <strong>{alert.title}</strong>
-                      <span>
-                        {alert.severity} · {alert.status}
-                      </span>
+
+                      <div className="dashboard-alert-badges">
+                        <span
+                          className={`dashboard-alert-badge dashboard-alert-badge-${getSeverityClass(
+                            alert.severity
+                          )}`}
+                        >
+                          {alert.severity}
+                        </span>
+                        <span
+                          className={`dashboard-alert-badge dashboard-alert-status-${getStatusClass(
+                            alert.status
+                          )}`}
+                        >
+                          {alert.status}
+                        </span>
+                      </div>
                     </div>
 
-                    <p>
-                      Type: {alert.alertType} · SKU: {alert.sku || "N/A"} ·
-                      Product: {alert.productName || "N/A"}
+                    <p className="dashboard-alert-description">
+                      {alert.description}
                     </p>
 
-                    <p>{alert.description}</p>
+                    <div className="dashboard-alert-meta">
+                      <span>
+                        <strong>Type:</strong> {toDisplayLabel(alert.alertType)}
+                      </span>
+                      <span>
+                        <strong>SKU:</strong> {alert.sku || "N/A"}
+                      </span>
+                      <span>
+                        <strong>Product:</strong> {alert.productName || "N/A"}
+                      </span>
+                    </div>
 
                     <small>{formatDate(alert.createdAtUtc)}</small>
                   </article>

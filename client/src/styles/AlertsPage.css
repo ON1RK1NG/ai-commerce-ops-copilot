@@ -293,6 +293,7 @@
   font-size: 0.82rem;
   font-weight: 800;
   text-transform: capitalize;
+  white-space: nowrap;
 }
 
 .alerts-badge-critical {
@@ -327,8 +328,14 @@
 
 .alerts-actions {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 0.6rem;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.alerts-actions .alerts-action-button {
+  flex: 0 0 auto;
 }
 
 .alerts-action-button.primary {
@@ -583,6 +590,7 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 1500px) {
@@ -660,5 +668,10 @@
 
   .alerts-recommendation {
     flex-direction: column;
+  }
+
+  .alerts-actions {
+    flex-wrap: wrap;
+    white-space: normal;
   }
 }

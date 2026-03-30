@@ -67,11 +67,32 @@ function getMovementLabel(value: string) {
   }
 }
 
-export default function InventoryPage() {
-  const [inventoryResponse, setInventoryResponse] = useState<InventoryListResponse>(initialListResponse);
-  const [selectedItem, setSelectedItem] = useState<InventoryListItem | null>(null);
-  const [selectedDetail, setSelectedDetail] = useState<InventoryDetail | null>(null);
-  const [recentMovements, setRecentMovements] = useState<InventoryMovement[]>([]);
+type InventoryFocusTarget = {
+  productId: number;
+  sku: string;
+  requestId: number;
+};
+
+type InventoryPageProps = {
+  focusTarget?: InventoryFocusTarget | null;
+  onFocusHandled?: () => void;
+};
+
+export default function InventoryPage({
+  focusTarget = null,
+  onFocusHandled,
+}: InventoryPageProps) {
+  const [inventoryResponse, setInventoryResponse] =
+    useState<InventoryListResponse>(initialListResponse);
+  const [selectedItem, setSelectedItem] = useState<InventoryListItem | null>(
+    null
+  );
+  const [selectedDetail, setSelectedDetail] = useState<InventoryDetail | null>(
+    null
+  );
+  const [recentMovements, setRecentMovements] = useState<InventoryMovement[]>(
+    []
+  );
   const [loadingList, setLoadingList] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
@@ -79,11 +100,15 @@ export default function InventoryPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [search, setSearch] = useState("");
-  const [stockStatus, setStockStatus] = useState<InventoryStockFilter>("all");
-  const [sortBy, setSortBy] = useState<InventorySortOption>("updated-desc");
+  const [stockStatus, setStockStatus] =
+    useState<InventoryStockFilter>("all");
+  const [sortBy, setSortBy] =
+    useState<InventorySortOption>("updated-desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [adjustmentForm, setAdjustmentForm] = useState<AdjustInventoryRequest>(initialAdjustmentForm);
+  const [adjustmentForm, setAdjustmentForm] =
+    useState<AdjustInventoryRequest>(initialAdjustmentForm);
+  const [pendingFocusProductId, setPendingFocusProductId] = useState<number | null>(null);
 
   const items = inventoryResponse.items;
 
@@ -109,10 +134,16 @@ export default function InventoryPage() {
         return;
       }
 
-      const matchingSelected = data.items.find((item) => item.productId === selectedItem?.productId);
+      const matchingSelected = data.items.find(
+        (item) => item.productId === selectedItem?.productId
+      );
       const nextSelected = matchingSelected ?? data.items[0];
+
       setSelectedItem(nextSelected);
-      setAdjustmentForm((prev) => ({ ...prev, productId: nextSelected.productId }));
+      setAdjustmentForm((prev) => ({
+        ...prev,
+        productId: nextSelected.productId,
+      }));
     } catch (err) {
       setError(getErrorMessage(err, "Failed to load inventory."));
     } finally {
@@ -162,6 +193,41 @@ export default function InventoryPage() {
   }, [loadRecentMovements]);
 
   useEffect(() => {
+    if (!focusTarget) {
+      return;
+    }
+
+    setSearch(focusTarget.sku);
+    setStockStatus("all");
+    setSortBy("updated-desc");
+    setPage(1);
+    setPendingFocusProductId(focusTarget.productId);
+
+    onFocusHandled?.();
+  }, [focusTarget, onFocusHandled]);
+
+  useEffect(() => {
+    if (!pendingFocusProductId) {
+      return;
+    }
+
+    const matchingItem = items.find(
+      (item) => item.productId === pendingFocusProductId
+    );
+
+    if (!matchingItem) {
+      return;
+    }
+
+    setSelectedItem(matchingItem);
+    setAdjustmentForm((prev) => ({
+      ...prev,
+      productId: matchingItem.productId,
+    }));
+    setPendingFocusProductId(null);
+  }, [items, pendingFocusProductId]);
+
+  useEffect(() => {
     if (!success && !error) {
       return;
     }
@@ -174,8 +240,12 @@ export default function InventoryPage() {
     return () => window.clearTimeout(timeoutId);
   }, [success, error]);
 
-  const startItem = inventoryResponse.totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
-  const endItem = inventoryResponse.totalCount === 0 ? 0 : Math.min(page * pageSize, inventoryResponse.totalCount);
+  const startItem =
+    inventoryResponse.totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endItem =
+    inventoryResponse.totalCount === 0
+      ? 0
+      : Math.min(page * pageSize, inventoryResponse.totalCount);
 
   const selectedStatusLabel = useMemo(() => {
     if (!selectedDetail) {
@@ -233,13 +303,20 @@ export default function InventoryPage() {
         <div>
           <h1 className="inventory-title">Inventory Operations</h1>
           <p className="inventory-subtitle">
-            Monitor stock health, review movement history, and apply controlled inventory adjustments.
+            Monitor stock health, review movement history, and apply controlled
+            inventory adjustments.
           </p>
         </div>
       </div>
 
-      {success && <div className="inventory-message inventory-message-success">{success}</div>}
-      {error && <div className="inventory-message inventory-message-error">{error}</div>}
+      {success && (
+        <div className="inventory-message inventory-message-success">
+          {success}
+        </div>
+      )}
+      {error && (
+        <div className="inventory-message inventory-message-error">{error}</div>
+      )}
 
       <div className="inventory-stats-grid">
         <div className="inventory-stat-card">
@@ -339,7 +416,8 @@ export default function InventoryPage() {
         </div>
 
         <div className="inventory-range-text">
-          Showing <strong>{startItem}</strong>–<strong>{endItem}</strong> of <strong>{inventoryResponse.totalCount}</strong> items
+          Showing <strong>{startItem}</strong>–<strong>{endItem}</strong> of{" "}
+          <strong>{inventoryResponse.totalCount}</strong> items
         </div>
 
         {loadingList ? (
@@ -370,10 +448,15 @@ export default function InventoryPage() {
                 {items.map((item) => (
                   <tr
                     key={item.productId}
-                    className={selectedItem?.productId === item.productId ? "selected" : ""}
+                    className={
+                      selectedItem?.productId === item.productId ? "selected" : ""
+                    }
                     onClick={() => {
                       setSelectedItem(item);
-                      setAdjustmentForm((prev) => ({ ...prev, productId: item.productId }));
+                      setAdjustmentForm((prev) => ({
+                        ...prev,
+                        productId: item.productId,
+                      }));
                     }}
                   >
                     <td>{item.sku}</td>
@@ -386,13 +469,25 @@ export default function InventoryPage() {
                     <td>
                       <span
                         className={`inventory-status-badge ${
-                          item.isOutOfStock ? "out" : item.isLowStock ? "low" : "healthy"
+                          item.isOutOfStock
+                            ? "out"
+                            : item.isLowStock
+                            ? "low"
+                            : "healthy"
                         }`}
                       >
-                        {item.isOutOfStock ? "Out" : item.isLowStock ? "Low" : "Healthy"}
+                        {item.isOutOfStock
+                          ? "Out"
+                          : item.isLowStock
+                          ? "Low"
+                          : "Healthy"}
                       </span>
                     </td>
-                    <td>{item.recommendedRestockUnits > 0 ? `${item.recommendedRestockUnits} units` : "—"}</td>
+                    <td>
+                      {item.recommendedRestockUnits > 0
+                        ? `${item.recommendedRestockUnits} units`
+                        : "—"}
+                    </td>
                     <td>{formatDate(item.updatedAtUtc)}</td>
                   </tr>
                 ))}
@@ -411,13 +506,18 @@ export default function InventoryPage() {
             Previous
           </button>
           <span>
-            Page <strong>{inventoryResponse.page}</strong> of <strong>{inventoryResponse.totalPages}</strong>
+            Page <strong>{inventoryResponse.page}</strong> of{" "}
+            <strong>{inventoryResponse.totalPages}</strong>
           </span>
           <button
             type="button"
             className="inventory-page-button"
             disabled={page >= inventoryResponse.totalPages}
-            onClick={() => setPage((prev) => Math.min(prev + 1, inventoryResponse.totalPages))}
+            onClick={() =>
+              setPage((prev) =>
+                Math.min(prev + 1, inventoryResponse.totalPages)
+              )
+            }
           >
             Next
           </button>
@@ -428,11 +528,16 @@ export default function InventoryPage() {
         <section className="inventory-panel">
           <div className="inventory-panel-header">
             <h2>Selected Inventory Detail</h2>
-            <p>Review the current stock state and recent product-specific movement history.</p>
+            <p>
+              Review the current stock state and recent product-specific movement
+              history.
+            </p>
           </div>
 
           {!selectedItem ? (
-            <p className="inventory-state-text">Select a row from the inventory table.</p>
+            <p className="inventory-state-text">
+              Select a row from the inventory table.
+            </p>
           ) : loadingDetail || !selectedDetail ? (
             <p className="inventory-state-text">Loading selected item...</p>
           ) : (
@@ -468,7 +573,9 @@ export default function InventoryPage() {
                       </div>
                       <div className="inventory-movement-meta">
                         <span>Qty: {movement.quantity}</span>
-                        <span>Available after: {movement.stockAvailableAfter}</span>
+                        <span>
+                          Available after: {movement.stockAvailableAfter}
+                        </span>
                       </div>
                       <p>{movement.reason || "No reason provided."}</p>
                     </div>
@@ -490,7 +597,11 @@ export default function InventoryPage() {
               <label htmlFor="adjustment-product">Selected Product</label>
               <input
                 id="adjustment-product"
-                value={selectedItem ? `${selectedItem.sku} — ${selectedItem.productName}` : "No item selected"}
+                value={
+                  selectedItem
+                    ? `${selectedItem.sku} — ${selectedItem.productName}`
+                    : "No item selected"
+                }
                 readOnly
               />
             </div>
@@ -510,7 +621,9 @@ export default function InventoryPage() {
                 <option value="add-stock">Add stock</option>
                 <option value="remove-stock">Remove stock</option>
                 <option value="reserve-stock">Reserve stock</option>
-                <option value="release-reserved-stock">Release reserved stock</option>
+                <option value="release-reserved-stock">
+                  Release reserved stock
+                </option>
               </select>
             </div>
 
@@ -535,7 +648,7 @@ export default function InventoryPage() {
               <textarea
                 id="adjustment-reason"
                 rows={4}
-                value={adjustmentForm.reason ?? ""}
+                value={adjustmentForm.reason}
                 onChange={(e) =>
                   setAdjustmentForm((prev) => ({
                     ...prev,
@@ -546,7 +659,11 @@ export default function InventoryPage() {
               />
             </div>
 
-            <button type="submit" className="inventory-primary-button" disabled={submitting || !selectedItem}>
+            <button
+              type="submit"
+              className="inventory-primary-button"
+              disabled={submitting || !selectedItem}
+            >
               {submitting ? "Applying..." : "Apply Adjustment"}
             </button>
           </form>
@@ -568,13 +685,17 @@ export default function InventoryPage() {
             {recentMovements.map((movement) => (
               <div key={movement.id} className="inventory-movement-card">
                 <div className="inventory-movement-top">
-                  <strong>{movement.sku} — {movement.productName}</strong>
+                  <strong>
+                    {movement.sku} — {movement.productName}
+                  </strong>
                   <span>{formatDate(movement.createdAtUtc)}</span>
                 </div>
                 <div className="inventory-movement-meta">
                   <span>{getMovementLabel(movement.movementType)}</span>
                   <span>Qty: {movement.quantity}</span>
-                  <span>Available after: {movement.stockAvailableAfter}</span>
+                  <span>
+                    Available after: {movement.stockAvailableAfter}
+                  </span>
                 </div>
                 <p>{movement.reason || "No reason provided."}</p>
               </div>
